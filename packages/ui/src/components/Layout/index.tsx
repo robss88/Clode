@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   PanelLeftClose,
@@ -8,9 +8,14 @@ import {
   ChevronDown,
   Settings,
   FolderOpen,
+  Menu,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useUIStore, useProjectStore } from '../../stores';
+
+// Breakpoints for responsive design
+const NARROW_WIDTH = 500;  // Below this, hide both panels and show minimal header
+const MEDIUM_WIDTH = 800;  // Below this, hide right panel only
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -27,9 +32,25 @@ export function Layout({
   bottomPanel,
   header,
 }: LayoutProps) {
-  const { layout, toggleLeftPanel, toggleRightPanel, toggleBottomPanel, setTheme } = useUIStore();
+  const { layout, toggleLeftPanel, toggleRightPanel, setTheme } = useUIStore();
   const { activeProject, projects, setActiveProject } = useProjectStore();
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1000);
+
+  // Track window width for responsive design
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Responsive breakpoints
+  const isNarrow = windowWidth < NARROW_WIDTH;
+  const isMedium = windowWidth < MEDIUM_WIDTH;
+
+  // Auto-hide panels based on width
+  const showLeftPanel = layout.leftPanel.isOpen && leftPanel && !isNarrow;
+  const showRightPanel = layout.rightPanel.isOpen && rightPanel && !isNarrow && !isMedium;
 
   const handleProjectSelect = useCallback((projectId: string) => {
     setActiveProject(projectId);
@@ -38,33 +59,45 @@ export function Layout({
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
-      {/* Header */}
-      <header className="h-12 flex items-center justify-between px-4 border-b border-border bg-background-secondary flex-shrink-0">
-        <div className="flex items-center gap-3">
-          {/* Left panel toggle */}
-          <button
-            onClick={toggleLeftPanel}
-            className="btn-icon"
-            title={layout.leftPanel.isOpen ? 'Hide sidebar' : 'Show sidebar'}
-          >
-            {layout.leftPanel.isOpen ? (
-              <PanelLeftClose className="w-4 h-4" />
-            ) : (
-              <PanelLeftOpen className="w-4 h-4" />
-            )}
-          </button>
+      {/* Header - compact when narrow */}
+      <header className={clsx(
+        "flex items-center justify-between border-b border-border bg-background-secondary flex-shrink-0",
+        isNarrow ? "h-10 px-2" : "h-12 px-4"
+      )}>
+        <div className="flex items-center gap-2">
+          {/* Left panel toggle - hidden when narrow */}
+          {!isNarrow && (
+            <button
+              onClick={toggleLeftPanel}
+              className="btn-icon"
+              title={layout.leftPanel.isOpen ? 'Hide sidebar' : 'Show sidebar'}
+            >
+              {layout.leftPanel.isOpen ? (
+                <PanelLeftClose className="w-4 h-4" />
+              ) : (
+                <PanelLeftOpen className="w-4 h-4" />
+              )}
+            </button>
+          )}
 
-          {/* Project selector */}
+          {/* Project selector - simplified when narrow */}
           <div className="relative">
             <button
               onClick={() => setShowProjectDropdown(!showProjectDropdown)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-background-hover transition-colors"
+              className={clsx(
+                "flex items-center gap-2 rounded-lg hover:bg-background-hover transition-colors",
+                isNarrow ? "px-2 py-1" : "px-3 py-1.5"
+              )}
             >
-              <FolderOpen className="w-4 h-4 text-accent" />
-              <span className="text-sm font-medium">
-                {activeProject?.name || 'No Project'}
-              </span>
-              <ChevronDown className="w-3 h-3 text-foreground-muted" />
+              <FolderOpen className={clsx("text-accent", isNarrow ? "w-3 h-3" : "w-4 h-4")} />
+              {!isNarrow && (
+                <>
+                  <span className="text-sm font-medium">
+                    {activeProject?.name || 'No Project'}
+                  </span>
+                  <ChevronDown className="w-3 h-3 text-foreground-muted" />
+                </>
+              )}
             </button>
 
             <AnimatePresence>
@@ -106,32 +139,50 @@ export function Layout({
 
         {/* Center - Title */}
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold bg-gradient-to-r from-accent to-purple-400 bg-clip-text text-transparent">
-            Claude Agent
+          <span className={clsx(
+            "font-semibold bg-gradient-to-r from-accent to-purple-400 bg-clip-text text-transparent",
+            isNarrow ? "text-xs" : "text-sm"
+          )}>
+            {isNarrow ? "Claude" : "Claude Agent"}
           </span>
         </div>
 
-        {/* Right side */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setTheme(useUIStore.getState().theme === 'dark' ? 'light' : 'dark')}
-            className="btn-icon"
-            title="Toggle theme"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
+        {/* Right side - simplified when narrow */}
+        <div className="flex items-center gap-1">
+          {!isNarrow && (
+            <button
+              onClick={() => setTheme(useUIStore.getState().theme === 'dark' ? 'light' : 'dark')}
+              className="btn-icon"
+              title="Toggle theme"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          )}
 
-          <button
-            onClick={toggleRightPanel}
-            className="btn-icon"
-            title={layout.rightPanel.isOpen ? 'Hide checkpoints' : 'Show checkpoints'}
-          >
-            {layout.rightPanel.isOpen ? (
-              <PanelRightClose className="w-4 h-4" />
-            ) : (
-              <PanelRightOpen className="w-4 h-4" />
-            )}
-          </button>
+          {!isNarrow && !isMedium && (
+            <button
+              onClick={toggleRightPanel}
+              className="btn-icon"
+              title={layout.rightPanel.isOpen ? 'Hide checkpoints' : 'Show checkpoints'}
+            >
+              {layout.rightPanel.isOpen ? (
+                <PanelRightClose className="w-4 h-4" />
+              ) : (
+                <PanelRightOpen className="w-4 h-4" />
+              )}
+            </button>
+          )}
+
+          {/* Menu button for narrow mode */}
+          {isNarrow && (
+            <button
+              onClick={toggleLeftPanel}
+              className="btn-icon"
+              title="Menu"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </header>
 
@@ -140,9 +191,9 @@ export function Layout({
 
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left panel */}
+        {/* Left panel - hidden when narrow */}
         <AnimatePresence initial={false}>
-          {layout.leftPanel.isOpen && leftPanel && (
+          {showLeftPanel && (
             <motion.aside
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: layout.leftPanel.size, opacity: 1 }}
@@ -179,9 +230,9 @@ export function Layout({
           </AnimatePresence>
         </main>
 
-        {/* Right panel */}
+        {/* Right panel - hidden when narrow or medium */}
         <AnimatePresence initial={false}>
-          {layout.rightPanel.isOpen && rightPanel && (
+          {showRightPanel && (
             <motion.aside
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: layout.rightPanel.size, opacity: 1 }}

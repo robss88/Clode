@@ -18,7 +18,8 @@
       "WebFetch(domain:github.com)",
       "Bash(npm run build:main:*)",
       "WebFetch(domain:support.claude.com)",
-      "Bash(claude:*)"
+      "Bash(claude:*)",
+      "Bash(git add:*)"
     ]
   }
 }
