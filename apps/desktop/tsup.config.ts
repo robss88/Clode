@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsup';
+import path from 'path';
 
 export default defineConfig({
   entry: {
@@ -28,4 +29,12 @@ export default defineConfig({
   noExternal: ['@claude-agent/core', 'nanoid', 'eventemitter3', 'simple-git'],
   // Ensure proper module resolution
   shims: false,
+  // Watch core package for changes too
+  ignoreWatch: ['node_modules', 'dist'],
+  // Resolve from source for better watch support
+  esbuildOptions(options) {
+    options.alias = {
+      '@claude-agent/core': path.join(__dirname, '../../packages/core/src'),
+    };
+  },
 });

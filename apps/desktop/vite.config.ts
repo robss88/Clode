@@ -27,9 +27,24 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.join(__dirname, 'src/renderer'),
+      // Resolve workspace packages to source for hot reloading
+      '@claude-agent/ui': path.join(__dirname, '../../packages/ui/src'),
+      '@claude-agent/core': path.join(__dirname, '../../packages/core/src'),
     },
+  },
+  // Use the UI package's PostCSS/Tailwind config
+  css: {
+    postcss: path.join(__dirname, '../../packages/ui'),
   },
   server: {
     port: 5173,
+    // Watch workspace packages for changes
+    watch: {
+      ignored: ['!**/node_modules/@claude-agent/**'],
+    },
+  },
+  // Optimize deps to exclude workspace packages (they're aliased to source)
+  optimizeDeps: {
+    exclude: ['@claude-agent/ui', '@claude-agent/core'],
   },
 });
