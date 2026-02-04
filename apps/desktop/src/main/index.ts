@@ -85,8 +85,8 @@ async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
-    minWidth: 1000,
-    minHeight: 600,
+    minWidth: 280,  // Allow very narrow for sidebar mode
+    minHeight: 400,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 15, y: 15 },
     backgroundColor: '#0d0d0d',

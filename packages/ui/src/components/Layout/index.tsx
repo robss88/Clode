@@ -14,8 +14,8 @@ import clsx from 'clsx';
 import { useUIStore, useProjectStore } from '../../stores';
 
 // Breakpoints for responsive design
-const NARROW_WIDTH = 500;  // Below this, hide both panels and show minimal header
-const MEDIUM_WIDTH = 800;  // Below this, hide right panel only
+const NARROW_WIDTH = 400;  // Below this, hide both panels and show minimal header (sidebar mode)
+const MEDIUM_WIDTH = 700;  // Below this, hide right panel only
 
 interface LayoutProps {
   children: React.ReactNode;
