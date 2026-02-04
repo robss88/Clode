@@ -4,11 +4,13 @@
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: theme('colors.border.DEFAULT');
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    background-color: theme('colors.background.DEFAULT');
+    color: theme('colors.foreground.DEFAULT');
+    @apply font-sans antialiased;
   }
 
   /* Custom scrollbar */
