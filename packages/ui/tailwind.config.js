@@ -1,9 +1,11 @@
+const path = require('path');
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
-    './src/**/*.{js,ts,jsx,tsx}',
-    // Include desktop app renderer files when used as postcss config
-    '../../apps/desktop/src/renderer/**/*.{js,ts,jsx,tsx}',
+    // Use absolute paths to ensure they work regardless of where postcss runs
+    path.join(__dirname, './src/**/*.{js,ts,jsx,tsx}'),
+    path.join(__dirname, '../../apps/desktop/src/renderer/**/*.{js,ts,jsx,tsx}'),
   ],
   darkMode: 'class',
   theme: {
