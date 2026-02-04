@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx turbo run build:*)",
+      "Bash(pkill:*)",
+      "Bash(xargs:*)",
+      "Bash(/Users/robertavellar/Clode/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron /Users/robertavellar/Clode/apps/desktop)",
+      "Bash(/Users/robertavellar/Clode/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron:*)",
+      "Bash(npx electron:*)",
+      "Bash(DEBUG=electron*)",
+      "Bash(/Users/robertavellar/Clode/node_modules/electron-backup/dist/Electron.app/Contents/MacOS/Electron .)",
+      "Bash(/Users/robertavellar/Clode/node_modules/electron-backup/dist/Electron.app/Contents/MacOS/Electron --enable-logging --v=1 .)",
+      "Bash(npm init:*)",
+      "Bash(echo:*)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(npm run build:main:*)",
+      "WebFetch(domain:support.claude.com)",
+      "Bash(claude:*)"
+    ]
+  }
+}

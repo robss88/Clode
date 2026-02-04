@@ -1,0 +1,115 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Desktop: Debug Main Process",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/apps/desktop",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "windows": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd"
+      },
+      "args": [".", "--remote-debugging-port=9222"],
+      "outputCapture": "std",
+      "preLaunchTask": "Build Desktop with Dependencies",
+      "env": {
+        "NODE_ENV": "development",
+        "ELECTRON_RUN_AS_NODE": "",
+        "VITE_DEV_SERVER_URL": "http://localhost:5173"
+      },
+      "console": "integratedTerminal",
+      "sourceMaps": true,
+      "outFiles": [
+        "${workspaceFolder}/apps/desktop/dist/**/*.js"
+      ]
+    },
+    {
+      "name": "Desktop: Debug with Vite",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/apps/desktop",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "windows": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd"
+      },
+      "args": [".", "--remote-debugging-port=9222"],
+      "outputCapture": "std",
+      "preLaunchTask": "Start Vite and Build Desktop",
+      "env": {
+        "NODE_ENV": "development",
+        "ELECTRON_RUN_AS_NODE": "",
+        "VITE_DEV_SERVER_URL": "http://localhost:5173"
+      },
+      "console": "integratedTerminal",
+      "sourceMaps": true,
+      "outFiles": [
+        "${workspaceFolder}/apps/desktop/dist/**/*.js"
+      ]
+    },
+    {
+      "name": "Desktop: Debug Renderer Process",
+      "type": "chrome",
+      "request": "attach",
+      "port": 9222,
+      "webRoot": "${workspaceFolder}/apps/desktop/src/renderer",
+      "timeout": 30000,
+      "sourceMaps": true
+    },
+    {
+      "name": "Desktop: Attach to Running",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "timeout": 30000,
+      "sourceMaps": true,
+      "outFiles": [
+        "${workspaceFolder}/apps/desktop/dist/**/*.js"
+      ]
+    },
+    {
+      "name": "VSCode Extension: Run Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/apps/vscode"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/apps/vscode/dist/**/*.js"
+      ],
+      "preLaunchTask": "Build VSCode Extension"
+    },
+    {
+      "name": "VSCode Extension: Debug Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/apps/vscode"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/apps/vscode/dist/**/*.js"
+      ],
+      "preLaunchTask": "Dev VSCode Extension",
+      "sourceMaps": true
+    },
+    {
+      "name": "Core: Debug Tests",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/packages/core",
+      "program": "${workspaceFolder}/packages/core/node_modules/vitest/vitest.mjs",
+      "args": ["run", "--reporter=verbose"],
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Desktop: Full Debug (Main + Renderer)",
+      "configurations": [
+        "Desktop: Debug with Vite",
+        "Desktop: Debug Renderer Process"
+      ],
+      "stopAll": true
+    }
+  ]
+}

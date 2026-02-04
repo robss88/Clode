@@ -1,0 +1,53 @@
+{
+  "name": "@claude-agent/ui",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean && npm run build:css",
+    "build:css": "tailwindcss -i ./src/styles/globals.css -o ./dist/styles.css --minify",
+    "dev": "concurrently \"tsup src/index.ts --format cjs,esm --dts --watch\" \"tailwindcss -i ./src/styles/globals.css -o ./dist/styles.css --watch\"",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@claude-agent/core": "*",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "zustand": "^4.5.0",
+    "framer-motion": "^11.0.0",
+    "react-markdown": "^9.0.1",
+    "rehype-highlight": "^7.0.0",
+    "react-diff-viewer-continued": "^3.4.0",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0",
+    "xterm-addon-web-links": "^0.9.0",
+    "lucide-react": "^0.312.0",
+    "clsx": "^2.1.0",
+    "date-fns": "^3.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "tailwindcss": "^3.4.1",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.33",
+    "concurrently": "^8.2.2"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+}

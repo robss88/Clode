@@ -1,0 +1,218 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Install Dependencies",
+      "type": "shell",
+      "command": "npm install",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build All",
+      "type": "shell",
+      "command": "npm run build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Dev All",
+      "type": "shell",
+      "command": "npm run dev",
+      "group": "build",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Core Package",
+      "type": "shell",
+      "command": "npm run build -w @claude-agent/core",
+      "group": "build",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Build UI Package",
+      "type": "shell",
+      "command": "npm run build -w @claude-agent/ui",
+      "group": "build",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Build Packages",
+      "type": "shell",
+      "command": "npm run build -w @claude-agent/core && npm run build -w @claude-agent/ui",
+      "group": "build",
+      "problemMatcher": ["$tsc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Dev Desktop",
+      "type": "shell",
+      "command": "npm run dev -w @claude-agent/desktop",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Desktop Main",
+      "type": "shell",
+      "command": "npm run build:main -w @claude-agent/desktop",
+      "group": "build",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Build Desktop",
+      "type": "shell",
+      "command": "npm run build -w @claude-agent/desktop",
+      "group": "build",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Build Desktop with Dependencies",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Build Packages", "Build Desktop Main"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Vite Dev Server",
+      "type": "shell",
+      "command": "npm run dev:renderer -w @claude-agent/desktop",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "dev"
+      },
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^.*VITE.*$",
+          "endsPattern": "^.*ready in.*$"
+        }
+      }
+    },
+    {
+      "label": "Start Vite and Build Desktop",
+      "dependsOn": ["Start Vite Dev Server", "Build Desktop with Dependencies"],
+      "dependsOrder": "parallel",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Package Desktop (Mac)",
+      "type": "shell",
+      "command": "npm run package:mac -w @claude-agent/desktop",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Package Desktop (Windows)",
+      "type": "shell",
+      "command": "npm run package:win -w @claude-agent/desktop",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Package Desktop (Linux)",
+      "type": "shell",
+      "command": "npm run package:linux -w @claude-agent/desktop",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build VSCode Extension",
+      "type": "shell",
+      "command": "npm run build -w @claude-agent/vscode",
+      "group": "build",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Dev VSCode Extension",
+      "type": "shell",
+      "command": "npm run dev -w @claude-agent/vscode",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Package VSCode Extension",
+      "type": "shell",
+      "command": "npm run package -w @claude-agent/vscode",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Clean All",
+      "type": "shell",
+      "command": "npm run clean",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Quick Start (Install + Build + Dev)",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Install Dependencies", "Build All", "Dev Desktop"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test Core",
+      "type": "shell",
+      "command": "npm run test -w @claude-agent/core",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Watch Core",
+      "type": "shell",
+      "command": "npm run dev -w @claude-agent/core",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "dev"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Watch UI",
+      "type": "shell",
+      "command": "npm run dev -w @claude-agent/ui",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "dev"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

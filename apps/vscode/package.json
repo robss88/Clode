@@ -1,0 +1,122 @@
+{
+  "name": "claude-agent-vscode",
+  "displayName": "Claude Agent",
+  "description": "AI-powered coding assistant with checkpoint management",
+  "version": "1.0.0",
+  "publisher": "claude-agent",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "ai",
+    "assistant",
+    "copilot",
+    "checkpoints"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claude-agent.openPanel",
+        "title": "Open Claude Agent",
+        "category": "Claude Agent"
+      },
+      {
+        "command": "claude-agent.createCheckpoint",
+        "title": "Create Checkpoint",
+        "category": "Claude Agent"
+      },
+      {
+        "command": "claude-agent.navigateBack",
+        "title": "Navigate to Previous Checkpoint",
+        "category": "Claude Agent"
+      },
+      {
+        "command": "claude-agent.navigateForward",
+        "title": "Navigate to Next Checkpoint",
+        "category": "Claude Agent"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claude-agent",
+          "title": "Claude Agent",
+          "icon": "assets/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "claude-agent": [
+        {
+          "type": "webview",
+          "id": "claude-agent.mainView",
+          "name": "Claude Agent"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "claude-agent.openPanel",
+        "key": "ctrl+shift+c",
+        "mac": "cmd+shift+c"
+      },
+      {
+        "command": "claude-agent.createCheckpoint",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s"
+      },
+      {
+        "command": "claude-agent.navigateBack",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "claude-agent.hasFocus"
+      },
+      {
+        "command": "claude-agent.navigateForward",
+        "key": "ctrl+shift+z",
+        "mac": "cmd+shift+z",
+        "when": "claude-agent.hasFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Claude Agent",
+      "properties": {
+        "claude-agent.autoCheckpoint": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically create checkpoints after file modifications"
+        },
+        "claude-agent.maxCheckpoints": {
+          "type": "number",
+          "default": 100,
+          "description": "Maximum number of checkpoints to keep"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup src/extension.ts --format cjs --external vscode",
+    "dev": "tsup src/extension.ts --format cjs --external vscode --watch",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "dependencies": {
+    "@claude-agent/core": "*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.22.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3"
+  }
+}

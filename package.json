@@ -1,0 +1,29 @@
+{
+  "name": "claude-agent",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "desktop": "turbo run dev --filter=@claude-agent/desktop",
+    "vscode": "turbo run dev --filter=@claude-agent/vscode"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "electron": "^29.0.0",
+    "prettier": "^3.2.4",
+    "turbo": "^2.3.0",
+    "typescript": "^5.3.3"
+  },
+  "packageManager": "npm@10.2.0",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
