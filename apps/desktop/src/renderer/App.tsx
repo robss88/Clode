@@ -2,24 +2,27 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Layout,
   ChatInterface,
-  CheckpointTimeline,
+  CommitTimeline,
   FileExplorer,
   DiffViewer,
   EmbeddedTerminal,
   useAgentStore,
-  useCheckpointStore,
   useProjectStore,
   useUIStore,
   useKeyboardShortcuts,
   createAgentShortcuts,
+  executeCommand,
 } from '@claude-agent/ui';
-import type { Message, FileNode, CheckpointGroup } from '@claude-agent/core';
+import type { Message, FileNode, GitBranch, GitCommit } from '@claude-agent/core';
 
 export default function App() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [fileTree, setFileTree] = useState<FileNode | null>(null);
   const [diffContent, setDiffContent] = useState<{ old: string; new: string }>({ old: '', new: '' });
-  const [selectedFileContent, setSelectedFileContent] = useState<string | null>(null);
+  const [branches, setBranches] = useState<GitBranch[]>([]);
+  const [commits, setCommits] = useState<GitCommit[]>([]);
+  const [currentBranch, setCurrentBranch] = useState<string | null>(null);
+  const [currentHead, setCurrentHead] = useState<string | null>(null);
 
   const {
     messages,
@@ -28,154 +31,205 @@ export default function App() {
     currentToolCall,
     addMessage,
     setStreaming,
-    appendStreamingContent,
     clearStreamingContent,
     setCurrentToolCall,
   } = useAgentStore();
 
-  const {
-    groups,
-    currentId,
-    canGoForward,
-    canGoBack,
-    setGroups,
-    setCurrentId,
-    setNavigation,
-    setPreviewId,
-  } = useCheckpointStore();
-
   const { activeProject, projects, setProjects, addProject, setActiveProject } = useProjectStore();
-  const { layout, toggleLeftPanel, toggleRightPanel, toggleBottomPanel, diffFile, setDiffFile } = useUIStore();
+  const { toggleLeftPanel, toggleRightPanel, toggleBottomPanel, diffFile, setDiffFile } = useUIStore();
 
-  // Define callbacks FIRST before useEffects that use them
-  // Refresh file tree periodically or after file operations
+  // Refresh file tree
   const refreshFileTree = useCallback(async () => {
     if (!activeProject) return;
     const tree = await window.electronAPI.getFileTree(activeProject.path);
     setFileTree(tree);
   }, [activeProject]);
 
-  // Refresh checkpoints
-  const refreshCheckpoints = useCallback(async () => {
-    const data = await window.electronAPI.listCheckpoints();
-    setGroups(data.groups);
-    setCurrentId(data.current?.id || null);
-    setNavigation(data.canGoForward, data.canGoBack);
-  }, [setGroups, setCurrentId, setNavigation]);
+  // Refresh git branches
+  const refreshBranches = useCallback(async () => {
+    const branchList = await window.electronAPI.listGitBranches();
+    setBranches(branchList);
+    const branch = await window.electronAPI.getCurrentGitBranch();
+    setCurrentBranch(branch || null);
+  }, []);
 
-  // Initialize app - load projects
+  // Refresh git commits for current branch
+  const refreshCommits = useCallback(async () => {
+    const commitList = await window.electronAPI.listGitCommits();
+    setCommits(commitList);
+    const head = await window.electronAPI.getCurrentGitHead();
+    setCurrentHead(head || null);
+  }, []);
+
+  // Initialize app
   useEffect(() => {
     async function init() {
-      console.log('[Renderer] Initializing app...');
       const projectList = await window.electronAPI.listProjects();
-      console.log('[Renderer] Loaded projects:', projectList.length);
       setProjects(projectList);
       setIsInitialized(true);
-      console.log('[Renderer] App initialized');
     }
     init();
   }, [setProjects]);
 
-  // Set up Claude event listeners - separate effect with cleanup
+  // Set up event listeners
   useEffect(() => {
-    console.log('[Renderer] Setting up Claude event listeners...');
-
     const cleanupChunk = window.electronAPI.onClaudeChunk((chunk) => {
-      console.log('[Renderer] Received chunk:', chunk.type, chunk.content?.slice(0, 30));
-
-      // Use getState() to always get fresh actions
       const { appendStreamingContent, setCurrentToolCall } = useAgentStore.getState();
 
       if (chunk.type === 'text') {
         appendStreamingContent(chunk.content);
         setCurrentToolCall(null);
       } else if (chunk.type === 'tool_call' && chunk.toolCall) {
-        console.log('[Renderer] Setting tool call:', chunk.toolCall.name);
         setCurrentToolCall(chunk.toolCall);
       } else if (chunk.type === 'tool_result') {
-        console.log('[Renderer] Tool result received, clearing tool call');
         setCurrentToolCall(null);
       }
     });
 
     const cleanupMessage = window.electronAPI.onClaudeMessage(async (message) => {
-      console.log('[Renderer] Received message:', message.role);
-      const { clearStreamingContent, setCurrentToolCall, addMessage, setStreaming } = useAgentStore.getState();
+      const { clearStreamingContent, setCurrentToolCall, addMessage, setStreaming, updateMessage } = useAgentStore.getState();
 
       clearStreamingContent();
       setCurrentToolCall(null);
       addMessage(message);
       setStreaming(false);
 
-      // Auto-create checkpoint after each assistant response
+      // Auto-create checkpoint after each assistant response (only if files changed)
       const currentMessages = useAgentStore.getState().messages;
-      await window.electronAPI.createCheckpoint(
-        undefined,
-        undefined,
-        [...currentMessages, message]
-      );
+      const checkpoint = await window.electronAPI.createCheckpoint(undefined, undefined, currentMessages, { skipIfEmpty: true });
+
+      // Store the commit hash on the assistant message for later restore
+      if (checkpoint && checkpoint.metadata?.commitSha) {
+        updateMessage(message.id, {
+          checkpointCommitHash: checkpoint.metadata.commitSha,
+        });
+      }
     });
 
     const cleanupError = window.electronAPI.onClaudeError((error) => {
-      console.error('[Renderer] Claude error:', error);
-      // Only stop streaming for real errors, not debug messages
       if (!error.startsWith('[Debug]')) {
         useAgentStore.getState().setStreaming(false);
       }
     });
 
-    // Checkpoint listeners - call refreshCheckpoints via closure
-    const cleanupCheckpointCreated = window.electronAPI.onCheckpointCreated((checkpoint) => {
-      console.log('[Renderer] Checkpoint created:', checkpoint?.id);
-      refreshCheckpoints();
+    const cleanupCheckpointCreated = window.electronAPI.onCheckpointCreated(() => {
+      refreshCommits();
+      refreshBranches();
     });
 
-    const cleanupCheckpointRestored = window.electronAPI.onCheckpointRestored((checkpoint) => {
-      console.log('[Renderer] Checkpoint restored:', checkpoint?.id);
-      refreshCheckpoints();
+    const cleanupCheckpointRestored = window.electronAPI.onCheckpointRestored(() => {
+      refreshCommits();
+      refreshBranches();
+      refreshFileTree();
     });
 
-    // Cleanup on unmount
+    const cleanupSessionCreated = window.electronAPI.onSessionCreated(() => {
+      refreshBranches();
+    });
+
+    const cleanupSessionSwitched = window.electronAPI.onSessionSwitched(() => {
+      refreshBranches();
+      refreshCommits();
+      refreshFileTree();
+    });
+
     return () => {
-      console.log('[Renderer] Cleaning up event listeners...');
       cleanupChunk();
       cleanupMessage();
       cleanupError();
       cleanupCheckpointCreated();
       cleanupCheckpointRestored();
+      cleanupSessionCreated();
+      cleanupSessionSwitched();
     };
-  }, [refreshCheckpoints]);
+  }, [refreshCommits, refreshBranches, refreshFileTree]);
 
   // Initialize project when selected
   useEffect(() => {
     if (!activeProject) return;
 
     async function initProject() {
-      console.log('[Renderer] Initializing project:', activeProject!.path);
-
-      // Start Claude Code
-      console.log('[Renderer] Starting Claude Code...');
-      const claudeStarted = await window.electronAPI.startClaude(activeProject!.path);
-      console.log('[Renderer] Claude started:', claudeStarted);
-
-      // Initialize checkpoints
-      console.log('[Renderer] Initializing checkpoints...');
+      await window.electronAPI.startClaude(activeProject!.path);
       await window.electronAPI.initCheckpoints(activeProject!.path);
-      await refreshCheckpoints();
-
-      // Load file tree
-      console.log('[Renderer] Loading file tree...');
+      await refreshBranches();
+      await refreshCommits();
       const tree = await window.electronAPI.getFileTree(activeProject!.path);
       setFileTree(tree);
-      console.log('[Renderer] Project initialized');
     }
 
     initProject();
-  }, [activeProject?.id, refreshCheckpoints]);
+  }, [activeProject?.id, refreshBranches, refreshCommits]);
 
-  // Send message
+  // Add system message helper
+  const addSystemMessage = useCallback((content: string) => {
+    const msg: Message = {
+      id: `sys-${Date.now()}`,
+      role: 'system',
+      content,
+      timestamp: Date.now(),
+    };
+    addMessage(msg);
+  }, [addMessage]);
+
+  // Send message (with slash command interception)
   const handleSendMessage = useCallback(async (content: string) => {
-    console.log('[Renderer] handleSendMessage called with:', content?.slice(0, 50));
+    // Check for slash commands first
+    if (content.startsWith('/')) {
+      const result = executeCommand(content, {
+        onClearMessages: () => useAgentStore.getState().clearMessages(),
+        onSendMessage: async (prompt, options) => {
+          await window.electronAPI.snapshotDirtyFilesForCheckpoint?.();
+          setStreaming(true);
+          const userMsg: Message = {
+            id: Date.now().toString(),
+            role: 'user',
+            content: prompt,
+            timestamp: Date.now(),
+          };
+          addMessage(userMsg);
+          await window.electronAPI.sendMessage(prompt, options);
+        },
+        onSetModel: (model) => {
+          window.electronAPI.setModel(model);
+        },
+        onAddSystemMessage: addSystemMessage,
+      });
+
+      if (result) {
+        if (result.type === 'error') {
+          addSystemMessage(result.message || 'Unknown error');
+          return;
+        }
+        if (result.type === 'local') {
+          if (result.message && !result.clearConversation) {
+            addSystemMessage(result.message);
+          }
+          return;
+        }
+        if (result.type === 'cli' && result.cliPrompt) {
+          // Send as CLI message with extra flags
+          await window.electronAPI.snapshotDirtyFilesForCheckpoint?.();
+          setStreaming(true);
+          const userMsg: Message = {
+            id: Date.now().toString(),
+            role: 'user',
+            content: content,
+            timestamp: Date.now(),
+          };
+          addMessage(userMsg);
+          if (result.message) {
+            addSystemMessage(result.message);
+          }
+          await window.electronAPI.sendMessage(result.cliPrompt, {
+            extraFlags: result.cliFlags,
+          });
+          return;
+        }
+      }
+    }
+
+    // Normal message
+    await window.electronAPI.snapshotDirtyFilesForCheckpoint?.();
     setStreaming(true);
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -184,11 +238,8 @@ export default function App() {
       timestamp: Date.now(),
     };
     addMessage(userMessage);
-
-    console.log('[Renderer] Calling window.electronAPI.sendMessage...');
-    const result = await window.electronAPI.sendMessage(content);
-    console.log('[Renderer] sendMessage result:', result);
-  }, [addMessage, setStreaming]);
+    await window.electronAPI.sendMessage(content);
+  }, [addMessage, setStreaming, addSystemMessage]);
 
   // Interrupt
   const handleInterrupt = useCallback(async () => {
@@ -198,41 +249,122 @@ export default function App() {
     setCurrentToolCall(null);
   }, [setStreaming, clearStreamingContent, setCurrentToolCall]);
 
-  // Checkpoint navigation - restores both files AND conversation
-  const handleNavigateToCheckpoint = useCallback(async (checkpointId: string) => {
-    const checkpoint = await window.electronAPI.restoreCheckpoint(checkpointId);
-    // Restore conversation from checkpoint snapshot
-    if (checkpoint?.conversationSnapshot) {
-      // Clear current messages and load from checkpoint
-      useAgentStore.getState().clearMessages();
-      for (const msg of checkpoint.conversationSnapshot) {
-        useAgentStore.getState().addMessage(msg);
-      }
-    }
-    // Refresh file tree after restore
+  // Checkout a commit
+  const handleCheckoutCommit = useCallback(async (commitHash: string) => {
+    await window.electronAPI.checkoutGitCommit(commitHash);
+    await refreshCommits();
     await refreshFileTree();
-  }, [refreshFileTree]);
+  }, [refreshCommits, refreshFileTree]);
 
-  const handleNavigateForward = useCallback(async () => {
-    await window.electronAPI.navigateForward();
-  }, []);
-
-  const handleNavigateBack = useCallback(async () => {
-    await window.electronAPI.navigateBack();
-  }, []);
-
-  const handlePreviewCheckpoint = useCallback(async (checkpointId: string) => {
-    setPreviewId(checkpointId);
-    // Load diff for preview
-    const diff = await window.electronAPI.getCheckpointDiff(checkpointId);
+  // Preview a commit diff
+  const handlePreviewCommit = useCallback(async (commitHash: string) => {
+    const diff = await window.electronAPI.getGitCommitDiff(commitHash);
     if (diff) {
       setDiffContent({ old: '', new: diff });
+      setDiffFile(`commit:${commitHash}`);
     }
-  }, [setPreviewId]);
+  }, [setDiffFile]);
+
+  // Restore to a checkpoint (checkout commit + truncate chat)
+  const handleRestoreToMessage = useCallback(async (messageId: string) => {
+    const currentMessages = useAgentStore.getState().messages;
+    const messageIndex = currentMessages.findIndex((m) => m.id === messageId);
+    if (messageIndex === -1) return;
+
+    const message = currentMessages[messageIndex];
+
+    // Find the target assistant message with a checkpoint
+    let targetAssistantMessage: Message | undefined;
+
+    if (message.role === 'user') {
+      // Look backwards for the previous assistant message with a checkpoint
+      for (let i = messageIndex - 1; i >= 0; i--) {
+        if (currentMessages[i].role === 'assistant' && currentMessages[i].checkpointCommitHash) {
+          targetAssistantMessage = currentMessages[i];
+          break;
+        }
+      }
+    } else if (message.role === 'assistant' && message.checkpointCommitHash) {
+      targetAssistantMessage = message;
+    }
+
+    // Reset branch to checkpoint commit (removes future commits)
+    if (targetAssistantMessage?.checkpointCommitHash) {
+      await window.electronAPI.resetGitToCommit(targetAssistantMessage.checkpointCommitHash);
+      await refreshCommits();
+      await refreshFileTree();
+    }
+
+    // Truncate messages
+    if (targetAssistantMessage) {
+      useAgentStore.getState().truncateAfterMessage(targetAssistantMessage.id);
+    } else {
+      useAgentStore.getState().clearMessages();
+    }
+  }, [refreshCommits, refreshFileTree]);
+
+  // Edit a previous user message (restore + populate input)
+  const handleEditMessage = useCallback(async (messageId: string) => {
+    const currentMessages = useAgentStore.getState().messages;
+    const messageIndex = currentMessages.findIndex((m) => m.id === messageId);
+    if (messageIndex === -1) return;
+
+    const message = currentMessages[messageIndex];
+    if (message.role !== 'user') return;
+
+    const editContent = message.content;
+
+    // Find the previous assistant message with a checkpoint
+    let targetAssistantMessage: Message | undefined;
+    for (let i = messageIndex - 1; i >= 0; i--) {
+      if (currentMessages[i].role === 'assistant' && currentMessages[i].checkpointCommitHash) {
+        targetAssistantMessage = currentMessages[i];
+        break;
+      }
+    }
+
+    // Reset branch to checkpoint commit (removes future commits)
+    if (targetAssistantMessage?.checkpointCommitHash) {
+      await window.electronAPI.resetGitToCommit(targetAssistantMessage.checkpointCommitHash);
+      await refreshCommits();
+      await refreshFileTree();
+    }
+
+    // Truncate messages
+    if (targetAssistantMessage) {
+      useAgentStore.getState().truncateAfterMessage(targetAssistantMessage.id);
+    } else {
+      useAgentStore.getState().clearMessages();
+    }
+
+    // Populate input with the old message content
+    useAgentStore.getState().setDraftInput(editContent);
+  }, [refreshCommits, refreshFileTree]);
 
   const handleCreateCheckpoint = useCallback(async () => {
     await window.electronAPI.createCheckpoint('Manual checkpoint', 'Created by user', messages);
   }, [messages]);
+
+  // Branch management
+  const handleCreateBranch = useCallback(async (name: string) => {
+    await window.electronAPI.createSession(name);
+    useAgentStore.getState().clearMessages();
+    await refreshBranches();
+    await refreshCommits();
+  }, [refreshBranches, refreshCommits]);
+
+  const handleSwitchBranch = useCallback(async (branchName: string) => {
+    await window.electronAPI.switchGitBranch(branchName);
+    useAgentStore.getState().clearMessages();
+    await refreshBranches();
+    await refreshCommits();
+    await refreshFileTree();
+  }, [refreshBranches, refreshCommits, refreshFileTree]);
+
+  // New chat on current branch (clear messages, keep checkpoints)
+  const handleNewChat = useCallback(() => {
+    useAgentStore.getState().clearMessages();
+  }, []);
 
   // Open folder
   const handleOpenFolder = useCallback(async () => {
@@ -248,8 +380,6 @@ export default function App() {
   // Keyboard shortcuts
   useKeyboardShortcuts({
     shortcuts: createAgentShortcuts({
-      onNavigateBack: handleNavigateBack,
-      onNavigateForward: handleNavigateForward,
       onCreateCheckpoint: handleCreateCheckpoint,
       onToggleLeftPanel: toggleLeftPanel,
       onToggleRightPanel: toggleRightPanel,
@@ -258,7 +388,7 @@ export default function App() {
     }),
   });
 
-  // Render welcome screen if no project
+  // Welcome screen
   if (!activeProject) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-background">
@@ -270,10 +400,7 @@ export default function App() {
             Your AI-powered coding assistant with powerful checkpoint management
           </p>
 
-          <button
-            onClick={handleOpenFolder}
-            className="btn btn-primary text-lg px-8 py-3"
-          >
+          <button onClick={handleOpenFolder} className="btn btn-primary text-lg px-8 py-3">
             Open Project
           </button>
 
@@ -306,13 +433,10 @@ export default function App() {
           <FileExplorer
             root={fileTree}
             onFileSelect={async (path) => {
-              // Read and display file content
-              const content = await window.electronAPI.readFile(path);
-              setSelectedFileContent(content);
+              await window.electronAPI.readFile(path);
             }}
             onDiffSelect={async (path) => {
               setDiffFile(path);
-              // Load the file content as "new" content for the diff viewer
               const content = await window.electronAPI.readFile(path);
               setDiffContent({ old: '', new: content || '' });
             }}
@@ -320,18 +444,21 @@ export default function App() {
         )
       }
       rightPanel={
-        <CheckpointTimeline
-          groups={groups}
-          currentId={currentId}
-          canGoForward={canGoForward}
-          canGoBack={canGoBack}
-          onNavigate={handleNavigateToCheckpoint}
-          onNavigateForward={handleNavigateForward}
-          onNavigateBack={handleNavigateBack}
-          onPreview={handlePreviewCheckpoint}
+        <CommitTimeline
+          commits={commits}
+          currentBranch={currentBranch}
+          currentCommitHash={currentHead}
+          onCheckoutCommit={handleCheckoutCommit}
+          onPreviewCommit={handlePreviewCommit}
         />
       }
       bottomPanel={<EmbeddedTerminal />}
+      onOpenProject={handleOpenFolder}
+      branches={branches}
+      currentBranchName={currentBranch}
+      onCreateBranch={handleCreateBranch}
+      onSwitchBranch={handleSwitchBranch}
+      onNewChat={handleNewChat}
     >
       <div className="h-full flex">
         <div className="flex-1">
@@ -340,12 +467,15 @@ export default function App() {
             isStreaming={isStreaming}
             streamingContent={streamingContent}
             currentToolCall={currentToolCall}
+            fileTree={fileTree}
             onSendMessage={handleSendMessage}
             onInterrupt={handleInterrupt}
+            onRestoreToMessage={handleRestoreToMessage}
+            onEditMessage={handleEditMessage}
+            onReadFile={(path) => window.electronAPI.readFile(path)}
           />
         </div>
 
-        {/* Diff viewer overlay */}
         {diffFile && (
           <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-8">
             <div className="w-full max-w-5xl h-full">

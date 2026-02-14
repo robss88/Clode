@@ -3,10 +3,9 @@ import { persist } from 'zustand/middleware';
 import type {
   Message,
   Checkpoint,
-  CheckpointGroup,
   Project,
   ToolCall,
-  ClaudeStreamChunk,
+  Session,
 } from '@claude-agent/core';
 
 // ============================================================================
@@ -18,7 +17,8 @@ export interface AgentState {
   isStreaming: boolean;
   streamingContent: string;
   currentToolCall: ToolCall | null;
-  updateCount: number; // Force re-renders by incrementing
+  updateCount: number;
+  draftInput: string;
 
   addMessage: (message: Message) => void;
   updateMessage: (id: string, updates: Partial<Message>) => void;
@@ -27,23 +27,23 @@ export interface AgentState {
   clearStreamingContent: () => void;
   setCurrentToolCall: (toolCall: ToolCall | null) => void;
   clearMessages: () => void;
+  truncateAfterMessage: (messageId: string) => void;
+  setDraftInput: (content: string) => void;
 }
 
-export const useAgentStore = create<AgentState>((set, get) => ({
+export const useAgentStore = create<AgentState>((set) => ({
   messages: [],
   isStreaming: false,
   streamingContent: '',
   currentToolCall: null,
   updateCount: 0,
+  draftInput: '',
 
   addMessage: (message) =>
-    set((state) => {
-      console.log('[AgentStore] addMessage:', message.role);
-      return {
-        messages: [...state.messages, message],
-        updateCount: state.updateCount + 1,
-      };
-    }),
+    set((state) => ({
+      messages: [...state.messages, message],
+      updateCount: state.updateCount + 1,
+    })),
 
   updateMessage: (id, updates) =>
     set((state) => ({
@@ -54,83 +54,118 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     })),
 
   setStreaming: (isStreaming) =>
-    set((state) => {
-      console.log('[AgentStore] setStreaming:', isStreaming);
-      return { isStreaming, updateCount: state.updateCount + 1 };
-    }),
+    set((state) => ({ isStreaming, updateCount: state.updateCount + 1 })),
 
   appendStreamingContent: (content) =>
+    set((state) => ({
+      streamingContent: state.streamingContent + content,
+      updateCount: state.updateCount + 1,
+    })),
+
+  clearStreamingContent: () =>
+    set((state) => ({ streamingContent: '', updateCount: state.updateCount + 1 })),
+
+  setCurrentToolCall: (toolCall) =>
+    set((state) => ({ currentToolCall: toolCall, updateCount: state.updateCount + 1 })),
+
+  clearMessages: () =>
+    set((state) => ({ messages: [], streamingContent: '', updateCount: state.updateCount + 1 })),
+
+  truncateAfterMessage: (messageId) =>
     set((state) => {
-      const newContent = state.streamingContent + content;
-      console.log('[AgentStore] appendStreamingContent, total length:', newContent.length);
+      const index = state.messages.findIndex((m) => m.id === messageId);
+      if (index === -1) return state;
       return {
-        streamingContent: newContent,
+        messages: state.messages.slice(0, index + 1),
         updateCount: state.updateCount + 1,
       };
     }),
 
-  clearStreamingContent: () =>
-    set((state) => {
-      console.log('[AgentStore] clearStreamingContent');
-      return { streamingContent: '', updateCount: state.updateCount + 1 };
-    }),
-
-  setCurrentToolCall: (toolCall) =>
-    set((state) => {
-      console.log('[AgentStore] setCurrentToolCall:', toolCall?.name || 'null');
-      return { currentToolCall: toolCall, updateCount: state.updateCount + 1 };
-    }),
-
-  clearMessages: () =>
-    set((state) => {
-      console.log('[AgentStore] clearMessages');
-      return { messages: [], streamingContent: '', updateCount: state.updateCount + 1 };
-    }),
+  setDraftInput: (content) =>
+    set((state) => ({
+      draftInput: content,
+      updateCount: state.updateCount + 1,
+    })),
 }));
 
 // ============================================================================
-// Checkpoint Store - Checkpoint management state
+// Session Store - Session management (one branch per session)
+// ============================================================================
+
+export interface SessionState {
+  sessions: Session[];
+  currentSession: Session | null;
+
+  setSessions: (sessions: Session[]) => void;
+  setCurrentSession: (session: Session | null) => void;
+  addSession: (session: Session) => void;
+  updateSession: (id: string, updates: Partial<Session>) => void;
+}
+
+export const useSessionStore = create<SessionState>((set) => ({
+  sessions: [],
+  currentSession: null,
+
+  setSessions: (sessions) => set({ sessions }),
+
+  setCurrentSession: (currentSession) => set({ currentSession }),
+
+  addSession: (session) =>
+    set((state) => ({
+      sessions: [...state.sessions, session],
+      currentSession: session,
+    })),
+
+  updateSession: (id, updates) =>
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === id ? { ...s, ...updates } : s
+      ),
+      currentSession:
+        state.currentSession?.id === id
+          ? { ...state.currentSession, ...updates }
+          : state.currentSession,
+    })),
+}));
+
+// ============================================================================
+// Checkpoint Store - Checkpoint management state (simplified)
 // ============================================================================
 
 export interface CheckpointState {
   checkpoints: Checkpoint[];
-  groups: CheckpointGroup[];
   currentId: string | null;
   previewId: string | null;
   canGoForward: boolean;
   canGoBack: boolean;
+  currentBranch: string | null;
 
   setCheckpoints: (checkpoints: Checkpoint[]) => void;
-  setGroups: (groups: CheckpointGroup[]) => void;
   setCurrentId: (id: string | null) => void;
   setPreviewId: (id: string | null) => void;
   setNavigation: (canGoForward: boolean, canGoBack: boolean) => void;
+  setCurrentBranch: (branch: string | null) => void;
   addCheckpoint: (checkpoint: Checkpoint) => void;
   removeCheckpoint: (id: string) => void;
 }
 
 export const useCheckpointStore = create<CheckpointState>((set) => ({
   checkpoints: [],
-  groups: [],
   currentId: null,
   previewId: null,
   canGoForward: false,
   canGoBack: false,
+  currentBranch: null,
 
-  setCheckpoints: (checkpoints) =>
-    set({ checkpoints }),
+  setCheckpoints: (checkpoints) => set({ checkpoints }),
 
-  setGroups: (groups) =>
-    set({ groups }),
+  setCurrentId: (currentId) => set({ currentId }),
 
-  setCurrentId: (currentId) =>
-    set({ currentId }),
+  setPreviewId: (previewId) => set({ previewId }),
 
-  setPreviewId: (previewId) =>
-    set({ previewId }),
+  setNavigation: (canGoForward, canGoBack) => set({ canGoForward, canGoBack }),
 
-  setNavigation: (canGoForward, canGoBack) =>
-    set({ canGoForward, canGoBack }),
+  setCurrentBranch: (currentBranch) => set({ currentBranch }),
 
   addCheckpoint: (checkpoint) =>
     set((state) => ({
@@ -160,12 +195,11 @@ export interface ProjectState {
 
 export const useProjectStore = create<ProjectState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       projects: [],
       activeProject: null,
 
-      setProjects: (projects) =>
-        set({ projects }),
+      setProjects: (projects) => set({ projects }),
 
       setActiveProject: (projectId) =>
         set((state) => ({
@@ -246,8 +280,7 @@ export const useUIStore = create<UIState>()(
       selectedFile: null,
       diffFile: null,
 
-      setTheme: (theme) =>
-        set({ theme }),
+      setTheme: (theme) => set({ theme }),
 
       toggleLeftPanel: () =>
         set((state) => ({
@@ -306,11 +339,9 @@ export const useUIStore = create<UIState>()(
           },
         })),
 
-      setSelectedFile: (selectedFile) =>
-        set({ selectedFile }),
+      setSelectedFile: (selectedFile) => set({ selectedFile }),
 
-      setDiffFile: (diffFile) =>
-        set({ diffFile }),
+      setDiffFile: (diffFile) => set({ diffFile }),
     }),
     {
       name: 'claude-agent-ui',

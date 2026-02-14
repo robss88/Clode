@@ -77,7 +77,11 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
     console.log('[ClaudeCodeManager] Ready to accept messages');
   }
 
-  async sendMessage(content: string): Promise<void> {
+  setModel(model: string): void {
+    this.config.model = model;
+  }
+
+  async sendMessage(content: string, options?: { extraFlags?: string[]; model?: string }): Promise<void> {
     console.log('[ClaudeCodeManager] sendMessage called with:', content.slice(0, 50));
 
     if (!this.isRunning) {
@@ -102,7 +106,7 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
     try {
       // Always use CLI for now - SDK is not reliable with subscription auth
       console.log('[ClaudeCodeManager] Using CLI approach (SDK available:', !!query, ')');
-      await this.sendMessageWithCLI(content);
+      await this.sendMessageWithCLI(content, options);
     } catch (err) {
       console.error('[ClaudeCodeManager] sendMessage error:', err);
       if ((err as Error).name !== 'AbortError') {
@@ -245,7 +249,7 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
     }
   }
 
-  private async sendMessageWithCLI(content: string): Promise<void> {
+  private async sendMessageWithCLI(content: string, options?: { extraFlags?: string[]; model?: string }): Promise<void> {
     console.log('[ClaudeCodeManager] Sending message via CLI fallback:', content.slice(0, 50));
 
     const { spawn } = require('child_process');
@@ -259,7 +263,7 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
     }
 
     return new Promise((resolve, reject) => {
-      const args = this.buildCliArgs(content);
+      const args = this.buildCliArgs(content, options);
       console.log('[ClaudeCodeManager] Spawning claude with args:', JSON.stringify(args));
       console.log('[ClaudeCodeManager] Working dir:', this.config.workingDir);
 
@@ -379,7 +383,7 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
     });
   }
 
-  private buildCliArgs(prompt: string): string[] {
+  private buildCliArgs(prompt: string, options?: { extraFlags?: string[]; model?: string }): string[] {
     const args: string[] = [
       '-p', prompt,
       '--output-format', 'stream-json',
@@ -390,8 +394,10 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
       args.push('--resume', this.sessionId);
     }
 
-    if (this.config.model) {
-      args.push('--model', this.config.model);
+    // Use option model override, or fall back to config
+    const model = options?.model || this.config.model;
+    if (model) {
+      args.push('--model', model);
     }
 
     if (this.config.systemPrompt) {
@@ -400,6 +406,11 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
 
     if (this.config.dangerouslySkipPermissions) {
       args.push('--dangerously-skip-permissions');
+    }
+
+    // Append extra CLI flags from options
+    if (options?.extraFlags) {
+      args.push(...options.extraFlags);
     }
 
     return args;

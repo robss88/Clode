@@ -179,6 +179,15 @@
 }
 
 @layer utilities {
+  /* Electron window dragging */
+  .app-drag {
+    -webkit-app-region: drag;
+  }
+
+  .app-no-drag {
+    -webkit-app-region: no-drag;
+  }
+
   .text-balance {
     text-wrap: balance;
   }

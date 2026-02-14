@@ -1,11 +1,10 @@
 import { EventEmitter } from 'eventemitter3';
 import { CheckpointTree } from './tree';
 import { GitCheckpointStorage } from './git';
-import type { Checkpoint, Message, FileChange } from '../types';
+import type { Checkpoint, Message, Session, GitBranch, GitCommit } from '../types';
 
 export interface CheckpointManagerOptions {
   workingDir: string;
-  sessionId?: string;
   autoCheckpoint?: boolean;
   checkpointOnToolCall?: boolean;
 }
@@ -14,14 +13,20 @@ interface CheckpointManagerEvents {
   'checkpoint:created': (checkpoint: Checkpoint) => void;
   'checkpoint:restored': (checkpoint: Checkpoint) => void;
   'checkpoint:deleted': (checkpointId: string) => void;
+  'session:created': (session: Session) => void;
+  'session:switched': (session: Session) => void;
   'navigation:forward': (checkpoint: Checkpoint) => void;
   'navigation:back': (checkpoint: Checkpoint) => void;
   error: (error: Error) => void;
 }
 
 /**
- * CheckpointManager - High-level API for managing checkpoints
- * Combines the CheckpointTree (in-memory) with GitCheckpointStorage (persistence)
+ * CheckpointManager - High-level API for managing checkpoints and sessions
+ *
+ * Simplified model:
+ * - Session = Branch (one branch per chat session)
+ * - Checkpoint = Commit on that branch
+ * - Restore = checkout commit (stay on same branch)
  */
 export class CheckpointManager extends EventEmitter<CheckpointManagerEvents> {
   private tree: CheckpointTree;
@@ -39,12 +44,15 @@ export class CheckpointManager extends EventEmitter<CheckpointManagerEvents> {
     this.tree = new CheckpointTree();
     this.storage = new GitCheckpointStorage({
       workingDir: options.workingDir,
-      sessionId: options.sessionId,
     });
   }
 
   get current(): Checkpoint | null {
     return this.tree.current;
+  }
+
+  get currentSession(): Session | null {
+    return this.storage.session;
   }
 
   get canGoForward(): boolean {
@@ -78,14 +86,67 @@ export class CheckpointManager extends EventEmitter<CheckpointManagerEvents> {
   }
 
   /**
+   * List all sessions
+   */
+  async listSessions(): Promise<Session[]> {
+    await this.initialize();
+    return this.storage.listSessions();
+  }
+
+  /**
+   * Create a new session (creates a new branch)
+   */
+  async createSession(name: string): Promise<Session> {
+    await this.initialize();
+
+    try {
+      const session = await this.storage.createSession(name);
+      this.emit('session:created', session);
+      return session;
+    } catch (err) {
+      this.emit('error', err instanceof Error ? err : new Error(String(err)));
+      throw err;
+    }
+  }
+
+  /**
+   * Switch to an existing session
+   */
+  async switchSession(sessionId: string): Promise<Session | null> {
+    await this.initialize();
+
+    try {
+      const session = await this.storage.switchSession(sessionId);
+      if (session) {
+        // Reload checkpoint tree for this session's branch
+        const savedTree = await this.storage.loadCheckpointMetadata();
+        if (savedTree.root) {
+          this.tree.import(savedTree);
+        }
+        this.emit('session:switched', session);
+      }
+      return session;
+    } catch (err) {
+      this.emit('error', err instanceof Error ? err : new Error(String(err)));
+      throw err;
+    }
+  }
+
+  /**
    * Create a new checkpoint
    */
   async createCheckpoint(
     title?: string,
     description?: string,
-    messages: Message[] = []
-  ): Promise<Checkpoint> {
+    messages: Message[] = [],
+    options?: { skipIfEmpty?: boolean }
+  ): Promise<Checkpoint | null> {
     await this.initialize();
+
+    // Ensure a session exists on the current branch (don't create a new branch)
+    if (!this.currentSession) {
+      await this.storage.ensureSession();
+    }
 
     const autoTitle = title || this.generateTitle(messages);
     const autoDescription = description || this.generateDescription(messages);
@@ -95,8 +156,14 @@ export class CheckpointManager extends EventEmitter<CheckpointManagerEvents> {
         autoTitle,
         autoDescription,
         messages,
-        this.tree.currentId
+        this.tree.currentId,
+        options
       );
+
+      // Null means no changes and skipIfEmpty was set
+      if (!checkpoint) {
+        return null;
+      }
 
       this.tree.add(checkpoint);
       this.emit('checkpoint:created', checkpoint);
@@ -109,7 +176,7 @@ export class CheckpointManager extends EventEmitter<CheckpointManagerEvents> {
   }
 
   /**
-   * Restore to a specific checkpoint
+   * Restore to a specific checkpoint (simple reset, no new branch)
    */
   async restoreCheckpoint(checkpointId: string): Promise<Checkpoint> {
     await this.initialize();
@@ -170,17 +237,22 @@ export class CheckpointManager extends EventEmitter<CheckpointManagerEvents> {
   }
 
   /**
-   * Get all checkpoints
+   * Get all checkpoints (flat list, newest first)
    */
   getAllCheckpoints(): Checkpoint[] {
     return this.tree.getAllCheckpoints();
   }
 
   /**
-   * Get checkpoints grouped by time
+   * Get checkpoints for current session only
    */
-  getGroupedCheckpoints() {
-    return this.tree.getGroupedCheckpoints();
+  getSessionCheckpoints(): Checkpoint[] {
+    const session = this.currentSession;
+    if (!session) return [];
+
+    return this.tree.getAllCheckpoints().filter(
+      cp => session.checkpointIds.includes(cp.id)
+    );
   }
 
   /**
@@ -228,6 +300,57 @@ export class CheckpointManager extends EventEmitter<CheckpointManagerEvents> {
    */
   exportTree() {
     return this.tree.export();
+  }
+
+  /**
+   * Get current branch name
+   */
+  async getCurrentBranch(): Promise<string> {
+    return this.storage.getCurrentBranch();
+  }
+
+  // ========================================================================
+  // Git-native methods (simplified UI)
+  // ========================================================================
+
+  async listAllBranches(): Promise<GitBranch[]> {
+    await this.initialize();
+    return this.storage.listAllBranches();
+  }
+
+  async listBranchCommits(maxCount?: number): Promise<GitCommit[]> {
+    await this.initialize();
+    return this.storage.listBranchCommits(maxCount);
+  }
+
+  async switchToBranch(branchName: string): Promise<void> {
+    await this.initialize();
+    return this.storage.switchToBranch(branchName);
+  }
+
+  async checkoutCommit(commitHash: string): Promise<void> {
+    await this.initialize();
+    return this.storage.checkoutCommit(commitHash);
+  }
+
+  async resetToCommit(commitHash: string): Promise<void> {
+    await this.initialize();
+    return this.storage.resetToCommit(commitHash);
+  }
+
+  async getCommitDiff(commitHash: string): Promise<string> {
+    await this.initialize();
+    return this.storage.getCommitDiff(commitHash);
+  }
+
+  async getCurrentHead(): Promise<string> {
+    await this.initialize();
+    return this.storage.getCurrentHead();
+  }
+
+  async snapshotDirtyFiles(): Promise<void> {
+    await this.initialize();
+    return this.storage.snapshotDirtyFiles();
   }
 
   /**

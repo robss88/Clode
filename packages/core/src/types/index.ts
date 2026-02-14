@@ -16,6 +16,7 @@ export interface Message {
   toolCalls?: ToolCall[];
   toolResults?: ToolResult[];
   isStreaming?: boolean;
+  checkpointCommitHash?: string;
 }
 
 export interface ToolCall {
@@ -94,6 +95,45 @@ export interface CheckpointGroup {
 }
 
 // ----------------------------------------------------------------------------
+// Git Types (simplified for UI)
+// ----------------------------------------------------------------------------
+
+export interface GitBranch {
+  name: string;
+  current: boolean;
+  commit: string;
+  label: string;
+  lastCommitDate?: string;
+}
+
+export interface GitCommit {
+  hash: string;
+  hashShort: string;
+  message: string;
+  body: string;
+  date: string;
+  timestamp: number;
+  authorName: string;
+  authorEmail: string;
+  filesChanged: number;
+}
+
+// ----------------------------------------------------------------------------
+// Session Types
+// ----------------------------------------------------------------------------
+
+export interface Session {
+  id: string;
+  name: string;
+  branch: string;
+  projectPath: string;
+  createdAt: number;
+  lastActive: number;
+  checkpointIds: string[];
+  isActive: boolean;
+}
+
+// ----------------------------------------------------------------------------
 // Project Types
 // ----------------------------------------------------------------------------
 
@@ -104,6 +144,8 @@ export interface Project {
   lastOpened: number;
   createdAt: number;
   checkpointTree: ICheckpointTree;
+  sessions: Session[];
+  activeSessionId: string | null;
   settings: ProjectSettings;
 }
 

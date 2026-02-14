@@ -9,16 +9,16 @@ interface UseCheckpointsOptions {
 export function useCheckpoints({ manager }: UseCheckpointsOptions) {
   const {
     checkpoints,
-    groups,
     currentId,
     previewId,
     canGoForward,
     canGoBack,
+    currentBranch,
     setCheckpoints,
-    setGroups,
     setCurrentId,
     setPreviewId,
     setNavigation,
+    setCurrentBranch,
     addCheckpoint,
     removeCheckpoint,
   } = useCheckpointStore();
@@ -27,14 +27,14 @@ export function useCheckpoints({ manager }: UseCheckpointsOptions) {
   useEffect(() => {
     if (!manager) return;
 
-    const syncState = () => {
+    const syncState = async () => {
       const allCheckpoints = manager.getAllCheckpoints();
-      const groupedCheckpoints = manager.getGroupedCheckpoints();
+      const branch = await manager.getCurrentBranch();
 
       setCheckpoints(allCheckpoints);
-      setGroups(groupedCheckpoints);
       setCurrentId(manager.current?.id || null);
       setNavigation(manager.canGoForward, manager.canGoBack);
+      setCurrentBranch(branch);
     };
 
     // Initial sync
@@ -54,7 +54,7 @@ export function useCheckpoints({ manager }: UseCheckpointsOptions) {
       manager.off('navigation:forward', syncState);
       manager.off('navigation:back', syncState);
     };
-  }, [manager, setCheckpoints, setGroups, setCurrentId, setNavigation]);
+  }, [manager, setCheckpoints, setCurrentId, setNavigation, setCurrentBranch]);
 
   // Create checkpoint
   const createCheckpoint = useCallback(async (
@@ -142,11 +142,11 @@ export function useCheckpoints({ manager }: UseCheckpointsOptions) {
 
   return {
     checkpoints,
-    groups,
     currentId,
     previewId,
     canGoForward,
     canGoBack,
+    currentBranch,
     createCheckpoint,
     navigateToCheckpoint,
     navigateForward,

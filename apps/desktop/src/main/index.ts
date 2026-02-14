@@ -210,7 +210,7 @@ function setupIPC() {
     }
   });
 
-  ipcMain.handle('claude:send', async (_, content: string) => {
+  ipcMain.handle('claude:send', async (_, content: string, options?: { extraFlags?: string[]; model?: string }) => {
     console.log(`[Main] claude:send called with content: ${content?.slice(0, 50)}`);
     if (!claudeManager) {
       console.log('[Main] claudeManager is null!');
@@ -223,7 +223,7 @@ function setupIPC() {
     try {
       console.log('[Main] Calling claudeManager.sendMessage...');
       const startTime = Date.now();
-      await claudeManager.sendMessage(content);
+      await claudeManager.sendMessage(content, options);
       console.log(`[Main] sendMessage completed in ${Date.now() - startTime}ms`);
       return true;
     } catch (error) {
@@ -232,6 +232,13 @@ function setupIPC() {
       mainWindow?.webContents.send('claude:error', String(error));
       return false;
     }
+  });
+
+  ipcMain.handle('claude:set-model', async (_, model: string) => {
+    if (claudeManager) {
+      claudeManager.setModel(model);
+    }
+    return true;
   });
 
   ipcMain.handle('claude:interrupt', async () => {
@@ -257,13 +264,26 @@ function setupIPC() {
       mainWindow?.webContents.send('checkpoint:restored', checkpoint);
     });
 
+    checkpointManager.on('session:created', (session) => {
+      mainWindow?.webContents.send('session:created', session);
+    });
+
+    checkpointManager.on('session:switched', (session) => {
+      mainWindow?.webContents.send('session:switched', session);
+    });
+
     await checkpointManager.initialize();
     return checkpointManager.exportTree();
   });
 
-  ipcMain.handle('checkpoint:create', async (_, title?: string, description?: string, messages?: any[]) => {
+  ipcMain.handle('checkpoint:create', async (_, title?: string, description?: string, messages?: any[], options?: { skipIfEmpty?: boolean }) => {
     if (!checkpointManager) return null;
-    return checkpointManager.createCheckpoint(title, description, messages);
+    return checkpointManager.createCheckpoint(title, description, messages, options);
+  });
+
+  ipcMain.handle('checkpoint:snapshot-dirty', async () => {
+    if (!checkpointManager) return;
+    await checkpointManager.snapshotDirtyFiles();
   });
 
   ipcMain.handle('checkpoint:restore', async (_, checkpointId: string) => {
@@ -282,18 +302,77 @@ function setupIPC() {
   });
 
   ipcMain.handle('checkpoint:list', async () => {
-    if (!checkpointManager) return { groups: [], current: null };
+    if (!checkpointManager) return { checkpoints: [], current: null, currentBranch: null };
     return {
-      groups: checkpointManager.getGroupedCheckpoints(),
+      checkpoints: checkpointManager.getSessionCheckpoints(),
       current: checkpointManager.current,
+      currentSession: checkpointManager.currentSession,
       canGoForward: checkpointManager.canGoForward,
       canGoBack: checkpointManager.canGoBack,
+      currentBranch: await checkpointManager.getCurrentBranch(),
     };
   });
 
   ipcMain.handle('checkpoint:diff', async (_, checkpointId: string) => {
     if (!checkpointManager) return '';
     return checkpointManager.getCheckpointDiff(checkpointId);
+  });
+
+  // Session handlers
+  ipcMain.handle('session:list', async () => {
+    if (!checkpointManager) return [];
+    return checkpointManager.listSessions();
+  });
+
+  ipcMain.handle('session:create', async (_, name: string) => {
+    if (!checkpointManager) return null;
+    return checkpointManager.createSession(name);
+  });
+
+  ipcMain.handle('session:switch', async (_, sessionId: string) => {
+    if (!checkpointManager) return null;
+    return checkpointManager.switchSession(sessionId);
+  });
+
+  // Git handlers (simplified UI)
+  ipcMain.handle('git:list-branches', async () => {
+    if (!checkpointManager) return [];
+    return checkpointManager.listAllBranches();
+  });
+
+  ipcMain.handle('git:switch-branch', async (_, branchName: string) => {
+    if (!checkpointManager) return;
+    await checkpointManager.switchToBranch(branchName);
+  });
+
+  ipcMain.handle('git:list-commits', async (_, maxCount?: number) => {
+    if (!checkpointManager) return [];
+    return checkpointManager.listBranchCommits(maxCount);
+  });
+
+  ipcMain.handle('git:checkout-commit', async (_, commitHash: string) => {
+    if (!checkpointManager) return;
+    await checkpointManager.checkoutCommit(commitHash);
+  });
+
+  ipcMain.handle('git:reset-to-commit', async (_, commitHash: string) => {
+    if (!checkpointManager) return;
+    await checkpointManager.resetToCommit(commitHash);
+  });
+
+  ipcMain.handle('git:commit-diff', async (_, commitHash: string) => {
+    if (!checkpointManager) return '';
+    return checkpointManager.getCommitDiff(commitHash);
+  });
+
+  ipcMain.handle('git:current-branch', async () => {
+    if (!checkpointManager) return '';
+    return checkpointManager.getCurrentBranch();
+  });
+
+  ipcMain.handle('git:current-head', async () => {
+    if (!checkpointManager) return '';
+    return checkpointManager.getCurrentHead();
   });
 
   // Shell handlers

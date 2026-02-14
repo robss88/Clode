@@ -61,6 +61,8 @@ export class ProjectManager {
         currentId: null,
         activeLineage: [],
       },
+      sessions: [],
+      activeSessionId: null,
       settings: this.getDefaultSettings(),
     };
 
