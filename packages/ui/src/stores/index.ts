@@ -3,10 +3,17 @@ import { persist } from 'zustand/middleware';
 import type {
   Message,
   Checkpoint,
+  ChatSession,
   Project,
   ToolCall,
   Session,
 } from '@claude-agent/core';
+
+// ============================================================================
+// Shared Types
+// ============================================================================
+
+export type AgentMode = 'agent' | 'plan' | 'chat';
 
 // ============================================================================
 // Agent Store - Chat and Claude Code state
@@ -253,11 +260,13 @@ export interface LayoutState {
 
 export interface UIState {
   theme: 'light' | 'dark' | 'system';
+  mode: AgentMode;
   layout: LayoutState;
   selectedFile: string | null;
   diffFile: string | null;
 
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
+  setMode: (mode: AgentMode) => void;
   toggleLeftPanel: () => void;
   toggleRightPanel: () => void;
   toggleBottomPanel: () => void;
@@ -272,6 +281,7 @@ export const useUIStore = create<UIState>()(
   persist(
     (set) => ({
       theme: 'dark',
+      mode: 'agent' as AgentMode,
       layout: {
         leftPanel: { isOpen: true, size: 260 },
         rightPanel: { isOpen: true, size: 300 },
@@ -281,6 +291,7 @@ export const useUIStore = create<UIState>()(
       diffFile: null,
 
       setTheme: (theme) => set({ theme }),
+      setMode: (mode) => set({ mode }),
 
       toggleLeftPanel: () =>
         set((state) => ({
@@ -348,3 +359,66 @@ export const useUIStore = create<UIState>()(
     }
   )
 );
+
+// ============================================================================
+// Chat Session Store - Per-branch chat sessions with message persistence
+// ============================================================================
+
+export interface ChatSessionState {
+  sessions: Record<string, ChatSession>;
+  activeChatId: string | null;
+
+  getChatsForBranch: (branch: string) => ChatSession[];
+  createChat: (branch: string, name: string) => ChatSession;
+  setActiveChatId: (id: string | null) => void;
+  updateChat: (id: string, updates: Partial<ChatSession>) => void;
+  saveMessages: (id: string, messages: Message[]) => void;
+}
+
+export const useChatSessionStore = create<ChatSessionState>((set, get) => ({
+  sessions: {},
+  activeChatId: null,
+
+  getChatsForBranch: (branch) => {
+    const sessions = get().sessions;
+    return Object.values(sessions)
+      .filter((s) => s.branch === branch)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  },
+
+  createChat: (branch, name) => {
+    const id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const chat: ChatSession = {
+      id,
+      branch,
+      name,
+      messages: [],
+      createdAt: Date.now(),
+    };
+    set((state) => ({
+      sessions: { ...state.sessions, [id]: chat },
+      activeChatId: id,
+    }));
+    return chat;
+  },
+
+  setActiveChatId: (id) => set({ activeChatId: id }),
+
+  updateChat: (id, updates) =>
+    set((state) => {
+      const existing = state.sessions[id];
+      if (!existing) return state;
+      return {
+        sessions: { ...state.sessions, [id]: { ...existing, ...updates } },
+      };
+    }),
+
+  saveMessages: (id, messages) =>
+    set((state) => {
+      const existing = state.sessions[id];
+      if (!existing) return state;
+      return {
+        sessions: { ...state.sessions, [id]: { ...existing, messages } },
+      };
+    }),
+}));

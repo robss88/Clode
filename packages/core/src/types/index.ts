@@ -133,6 +133,14 @@ export interface Session {
   isActive: boolean;
 }
 
+export interface ChatSession {
+  id: string;
+  branch: string;
+  name: string;
+  messages: Message[];
+  createdAt: number;
+}
+
 // ----------------------------------------------------------------------------
 // Project Types
 // ----------------------------------------------------------------------------

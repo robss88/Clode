@@ -13,6 +13,7 @@ export {
   useSessionStore,
   useProjectStore,
   useUIStore,
+  useChatSessionStore,
 } from './stores';
 
 // Hooks
@@ -21,8 +22,9 @@ export { useCheckpoints } from './hooks/useCheckpoints';
 export { useKeyboardShortcuts, createAgentShortcuts } from './hooks/useKeyboardShortcuts';
 
 // Commands
-export { parseSlashCommand, executeCommand, getAvailableCommands } from './commands';
+export { parseSlashCommand, executeCommand, getAvailableCommands, getModeFlags } from './commands';
 
 // Types
-export type { AgentState, CheckpointState, SessionState, ProjectState, UIState } from './stores';
+export type { AgentMode } from './stores';
+export type { AgentState, CheckpointState, ChatSessionState, SessionState, ProjectState, UIState } from './stores';
 export type { CommandResult, CommandContext, SendMessageOptions } from './commands';

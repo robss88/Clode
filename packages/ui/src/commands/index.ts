@@ -1,3 +1,5 @@
+export { getModeFlags, MODES } from './modes';
+
 export interface SendMessageOptions {
   extraFlags?: string[];
   model?: string;
@@ -7,6 +9,7 @@ export interface CommandContext {
   onClearMessages: () => void;
   onSendMessage: (content: string, options?: SendMessageOptions) => void;
   onSetModel: (model: string) => void;
+  onSetMode?: (mode: string) => void;
   onAddSystemMessage: (content: string) => void;
 }
 

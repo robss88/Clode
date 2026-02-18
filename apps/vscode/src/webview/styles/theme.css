@@ -1,0 +1,31 @@
+/* Map VS Code CSS variables to our Tailwind color tokens */
+:root {
+  /* Background */
+  --color-background: var(--vscode-editor-background);
+  --color-background-secondary: var(--vscode-sideBar-background);
+  --color-background-tertiary: var(--vscode-input-background);
+  --color-background-hover: var(--vscode-list-hoverBackground);
+  --color-background-active: var(--vscode-list-activeSelectionBackground);
+
+  /* Foreground */
+  --color-foreground: var(--vscode-foreground);
+  --color-foreground-secondary: var(--vscode-descriptionForeground);
+  --color-foreground-muted: var(--vscode-disabledForeground);
+
+  /* Border */
+  --color-border: var(--vscode-panel-border);
+  --color-border-secondary: var(--vscode-editorGroup-border);
+
+  /* Accent */
+  --color-accent: var(--vscode-button-background);
+  --color-accent-hover: var(--vscode-button-hoverBackground);
+  --color-accent-muted: color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
+
+  /* Status */
+  --color-success: var(--vscode-testing-iconPassed, #22c55e);
+  --color-success-muted: color-mix(in srgb, var(--vscode-testing-iconPassed, #22c55e) 12%, transparent);
+  --color-warning: var(--vscode-editorWarning-foreground, #eab308);
+  --color-warning-muted: color-mix(in srgb, var(--vscode-editorWarning-foreground, #eab308) 12%, transparent);
+  --color-error: var(--vscode-errorForeground, #ef4444);
+  --color-error-muted: color-mix(in srgb, var(--vscode-errorForeground, #ef4444) 12%, transparent);
+}

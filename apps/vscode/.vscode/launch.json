@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run in Cursor",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "/Applications/Cursor.app/Contents/Resources/app/bin/cursor",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/dist/**/*.js"
+      ],
+      "preLaunchTask": "npm: build"
+    },
+    {
+      "name": "Run in Cursor (no build)",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "/Applications/Cursor.app/Contents/Resources/app/bin/cursor",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/dist/**/*.js"
+      ]
+    }
+  ]
+}

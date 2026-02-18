@@ -1,0 +1,102 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { Bot, Map, MessageCircle, ChevronDown } from 'lucide-react';
+import clsx from 'clsx';
+import { MODES } from '../../commands/modes';
+import type { AgentMode } from '../../stores';
+
+const MODE_ICONS: Record<AgentMode, React.ComponentType<{ className?: string }>> = {
+  agent: Bot,
+  plan: Map,
+  chat: MessageCircle,
+};
+
+const MODE_ORDER: AgentMode[] = ['agent', 'plan', 'chat'];
+
+interface ModeSelectorProps {
+  mode: AgentMode;
+  onModeChange: (mode: AgentMode) => void;
+}
+
+export function ModeSelector({ mode, onModeChange }: ModeSelectorProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === 'Escape') setIsOpen(false);
+    }
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+      return () => document.removeEventListener('keydown', handleEscape);
+    }
+  }, [isOpen]);
+
+  const currentMode = MODES[mode];
+  const Icon = MODE_ICONS[mode];
+
+  return (
+    <div ref={ref} className="relative">
+      {/* Dropdown (opens upward) */}
+      {isOpen && (
+        <div className="absolute bottom-full left-0 mb-1 w-64 bg-background-secondary border border-border rounded-lg shadow-xl z-30 overflow-hidden">
+          <div className="p-1">
+            {MODE_ORDER.map((modeId) => {
+              const def = MODES[modeId];
+              const ModeIcon = MODE_ICONS[modeId];
+              const isActive = modeId === mode;
+              return (
+                <button
+                  key={modeId}
+                  type="button"
+                  onClick={() => {
+                    onModeChange(modeId);
+                    setIsOpen(false);
+                  }}
+                  className={clsx(
+                    'w-full flex items-center gap-3 px-3 py-2 rounded text-left transition-colors',
+                    isActive
+                      ? 'bg-accent/20 text-accent'
+                      : 'hover:bg-background-hover text-foreground'
+                  )}
+                >
+                  <ModeIcon className="w-4 h-4 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium">{def.label}</div>
+                    <div className="text-xs text-foreground-muted">{def.description}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Pill button */}
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={clsx(
+          'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors',
+          'hover:bg-background-hover',
+          isOpen ? 'bg-background-hover text-accent' : 'text-foreground-muted'
+        )}
+      >
+        <Icon className="w-3.5 h-3.5" />
+        <span>{currentMode.label}</span>
+        <ChevronDown className={clsx('w-3 h-3 transition-transform', isOpen && 'rotate-180')} />
+      </button>
+    </div>
+  );
+}
