@@ -7,12 +7,17 @@ import {
   useChatSessionStore,
   executeCommand,
   getModeFlags,
+  configureStorage,
 } from '@claude-agent/ui';
-import type { Message, FileNode, GitBranch, GitCommit } from '@claude-agent/core';
+import type { Message, FileNode, GitBranch, GitCommit, ContextItem } from '@claude-agent/core';
 import { MessageSquare, GitCommitHorizontal } from 'lucide-react';
 import clsx from 'clsx';
 import { useBridge } from './bridge/context';
 import { ChatSessionDropdown } from './ChatSessionDropdown';
+import { vscodeStorage } from './bridge/vscode-bridge';
+
+// Configure Zustand persistence to use VS Code webview state (survives reloads)
+configureStorage(vscodeStorage);
 
 export default function App() {
   const bridge = useBridge();
@@ -210,7 +215,7 @@ export default function App() {
   }, [addMessage]);
 
   // Send message (with slash command interception)
-  const handleSendMessage = useCallback(async (content: string) => {
+  const handleSendMessage = useCallback(async (content: string, context?: ContextItem[]) => {
     setEditSnapshot(null);
     const modeFlags = getModeFlags(useUIStore.getState().mode);
 
@@ -287,6 +292,7 @@ export default function App() {
       role: 'user',
       content,
       timestamp: Date.now(),
+      context: context && context.length > 0 ? context : undefined,
     };
     addMessage(userMessage);
     bridge.sendMessage(content, {

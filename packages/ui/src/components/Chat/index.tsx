@@ -27,16 +27,12 @@ import {
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import clsx from 'clsx';
-import type { Message, ToolCall, FileNode } from '@claude-agent/core';
+import type { Message, ToolCall, FileNode, ContextItem } from '@claude-agent/core';
 import { useAgentStore, useUIStore } from '../../stores';
 import { getAvailableCommands, parseSlashCommand, MODES } from '../../commands';
 import { ModeSelector } from './ModeSelector';
 import { ModelSelector } from './ModelSelector';
-
-interface AttachedFile {
-  path: string;
-  name: string;
-}
+import { ContextBubbleList } from './ContextBubble';
 
 interface ChatInterfaceProps {
   messages: Message[];
@@ -45,7 +41,7 @@ interface ChatInterfaceProps {
   currentToolCall?: ToolCall | null;
   fileTree?: FileNode | null;
   isEditing?: boolean;
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content: string, context?: ContextItem[]) => void;
   onInterrupt: () => void;
   onRestoreToMessage?: (messageId: string) => void;
   onEditMessage?: (messageId: string) => void;
@@ -95,7 +91,7 @@ export function ChatInterface({
   const [showSlashCommands, setShowSlashCommands] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
-  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [contextItems, setContextItems] = useState<ContextItem[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -225,19 +221,30 @@ export function ChatInterface({
   }, []);
 
   const insertMention = useCallback((filePath: string) => {
+    const fileName = filePath.split('/').pop() || filePath;
+    // Remove the @query from input
     const beforeMention = input.slice(0, mentionStartPos);
     const afterMention = input.slice(mentionStartPos + mentionQuery.length + 1);
-    const newInput = `${beforeMention}@${filePath}${afterMention}`;
+    const newInput = `${beforeMention}${afterMention}`.trim();
     setInput(newInput);
     setShowMentions(false);
     setMentionQuery('');
 
-    // Focus back on input and set cursor position
+    // Add as context item
+    const item: ContextItem = {
+      id: `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type: 'file',
+      name: fileName,
+      path: filePath,
+    };
+    setContextItems(prev => {
+      if (prev.some(c => c.path === filePath)) return prev;
+      return [...prev, item];
+    });
+
     setTimeout(() => {
       if (inputRef.current) {
         inputRef.current.focus();
-        const newCursorPos = mentionStartPos + filePath.length + 1;
-        inputRef.current.setSelectionRange(newCursorPos, newCursorPos);
       }
     }, 0);
   }, [input, mentionStartPos, mentionQuery]);
@@ -286,35 +293,45 @@ export function ChatInterface({
     setIsDragOver(false);
 
     const files = Array.from(e.dataTransfer.files);
-    const newAttachments: AttachedFile[] = files.map(f => ({
-      path: (f as any).path || f.name,
+    const newItems: ContextItem[] = files.map(f => ({
+      id: `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type: 'file' as const,
       name: f.name,
+      path: (f as any).path || f.name,
     }));
 
-    setAttachedFiles(prev => {
-      const existing = new Set(prev.map(f => f.path));
-      const unique = newAttachments.filter(f => !existing.has(f.path));
+    setContextItems(prev => {
+      const existing = new Set(prev.map(c => c.path));
+      const unique = newItems.filter(c => !existing.has(c.path));
       return [...prev, ...unique];
     });
   }, []);
 
-  const removeAttachment = useCallback((path: string) => {
-    setAttachedFiles(prev => prev.filter(f => f.path !== path));
+  const removeContextItem = useCallback((id: string) => {
+    setContextItems(prev => prev.filter(c => c.id !== id));
   }, []);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isStreaming) return;
+    if ((!input.trim() && contextItems.length === 0) || isStreaming) return;
 
     let content = input.trim();
 
-    // Inline attached file contents
-    if (attachedFiles.length > 0 && onReadFile) {
+    // Load file contents for context items and inline them for Claude
+    const resolvedContext: ContextItem[] = [];
+    if (contextItems.length > 0 && onReadFile) {
       const fileParts: string[] = [];
-      for (const file of attachedFiles) {
-        const fileContent = await onReadFile(file.path);
-        if (fileContent !== null) {
-          fileParts.push(`<file path="${file.path}">\n${fileContent}\n</file>`);
+      for (const item of contextItems) {
+        if (item.type === 'file' && item.path) {
+          const fileContent = await onReadFile(item.path);
+          if (fileContent !== null) {
+            fileParts.push(`<file path="${item.path}">\n${fileContent}\n</file>`);
+            resolvedContext.push({ ...item, content: fileContent, preview: fileContent.slice(0, 200) });
+          } else {
+            resolvedContext.push(item);
+          }
+        } else {
+          resolvedContext.push(item);
         }
       }
       if (fileParts.length > 0) {
@@ -322,11 +339,11 @@ export function ChatInterface({
       }
     }
 
-    onSendMessage(content);
+    onSendMessage(content, resolvedContext.length > 0 ? resolvedContext : undefined);
     setInput('');
-    setAttachedFiles([]);
+    setContextItems([]);
     setShowMentions(false);
-  }, [input, isStreaming, onSendMessage, attachedFiles, onReadFile]);
+  }, [input, isStreaming, onSendMessage, contextItems, onReadFile]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // Handle slash command navigation
@@ -581,27 +598,13 @@ export function ChatInterface({
             )}
           </AnimatePresence>
 
-          {/* Attached files */}
-          {attachedFiles.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {attachedFiles.map((file) => (
-                <div
-                  key={file.path}
-                  className="flex items-center gap-1.5 px-2 py-1 bg-accent/10 border border-accent/20 rounded-md text-xs"
-                >
-                  <Paperclip className="w-3 h-3 text-accent" />
-                  <span className="truncate max-w-[150px]" title={file.path}>
-                    {file.name}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removeAttachment(file.path)}
-                    className="hover:text-error transition-colors"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
+          {/* Context bubbles */}
+          {contextItems.length > 0 && (
+            <div className="mb-2">
+              <ContextBubbleList
+                items={contextItems}
+                onRemove={removeContextItem}
+              />
             </div>
           )}
 
@@ -792,10 +795,22 @@ function MessageBubble({
         <div className={clsx('flex-1 min-w-0', isUser && 'flex justify-end')}>
           <div className={clsx('message relative', isUser ? 'message-user' : 'message-assistant')}>
             {(() => {
+              // Use context items if available, otherwise parse <file> tags for legacy messages
+              if (isUser && message.context && message.context.length > 0) {
+                const textContent = parseFileContext(message.content).textContent;
+                return (
+                  <>
+                    <div className="mb-2">
+                      <ContextBubbleList items={message.context} compact />
+                    </div>
+                    <MarkdownContent content={textContent} />
+                  </>
+                );
+              }
               const { files, textContent } = isUser ? parseFileContext(message.content) : { files: [], textContent: message.content };
               return (
                 <>
-                  <FileContextPills files={files} />
+                  {files.length > 0 && <FileContextPills files={files} />}
                   <MarkdownContent content={textContent} />
                 </>
               );

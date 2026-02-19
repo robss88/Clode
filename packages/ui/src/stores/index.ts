@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import type { StateStorage } from 'zustand/middleware';
 import type {
   Message,
   Checkpoint,
@@ -8,6 +9,36 @@ import type {
   ToolCall,
   Session,
 } from '@claude-agent/core';
+
+// ============================================================================
+// Configurable Storage Backend
+// ============================================================================
+// Defaults to a safe no-op. Call `configureStorage()` before the first render
+// to set the real backend (e.g. vscodeStorage for VS Code webviews).
+
+let _storageBackend: StateStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+};
+
+const storageProxy: StateStorage = {
+  getItem: (name) => _storageBackend.getItem(name),
+  setItem: (name, value) => _storageBackend.setItem(name, value),
+  removeItem: (name) => _storageBackend.removeItem(name),
+};
+
+/**
+ * Set the storage backend for all persisted Zustand stores and re-hydrate.
+ * Must be called before the first React render.
+ */
+export function configureStorage(storage: StateStorage) {
+  _storageBackend = storage;
+  // Re-hydrate every persisted store from the new backend
+  useChatSessionStore.persist.rehydrate();
+  useUIStore.persist.rehydrate();
+  useProjectStore.persist.rehydrate();
+}
 
 // ============================================================================
 // Shared Types
@@ -243,6 +274,7 @@ export const useProjectStore = create<ProjectState>()(
     }),
     {
       name: 'claude-agent-projects',
+      storage: createJSONStorage(() => storageProxy),
     }
   )
 );
@@ -364,6 +396,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'claude-agent-ui',
+      storage: createJSONStorage(() => storageProxy),
       version: 1,
       migrate: (persistedState: any, version: number) => {
         if (version === 0) {
@@ -394,52 +427,60 @@ export interface ChatSessionState {
   saveMessages: (id: string, messages: Message[]) => void;
 }
 
-export const useChatSessionStore = create<ChatSessionState>((set, get) => ({
-  sessions: {},
-  activeChatId: null,
+export const useChatSessionStore = create<ChatSessionState>()(
+  persist(
+    (set, get) => ({
+      sessions: {},
+      activeChatId: null,
 
-  getChatsForBranch: (branch) => {
-    const sessions = get().sessions;
-    return Object.values(sessions)
-      .filter((s) => s.branch === branch)
-      .sort((a, b) => b.createdAt - a.createdAt);
-  },
+      getChatsForBranch: (branch) => {
+        const sessions = get().sessions;
+        return Object.values(sessions)
+          .filter((s) => s.branch === branch)
+          .sort((a, b) => b.createdAt - a.createdAt);
+      },
 
-  createChat: (branch, name) => {
-    const id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const chat: ChatSession = {
-      id,
-      branch,
-      branchName: branch,
-      name,
-      messages: [],
-      createdAt: Date.now(),
-      lastActive: Date.now(),
-    };
-    set((state) => ({
-      sessions: { ...state.sessions, [id]: chat },
-      activeChatId: id,
-    }));
-    return chat;
-  },
+      createChat: (branch, name) => {
+        const id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const chat: ChatSession = {
+          id,
+          branch,
+          branchName: branch,
+          name,
+          messages: [],
+          createdAt: Date.now(),
+          lastActive: Date.now(),
+        };
+        set((state) => ({
+          sessions: { ...state.sessions, [id]: chat },
+          activeChatId: id,
+        }));
+        return chat;
+      },
 
-  setActiveChatId: (id) => set({ activeChatId: id }),
+      setActiveChatId: (id) => set({ activeChatId: id }),
 
-  updateChat: (id, updates) =>
-    set((state) => {
-      const existing = state.sessions[id];
-      if (!existing) return state;
-      return {
-        sessions: { ...state.sessions, [id]: { ...existing, ...updates } },
-      };
+      updateChat: (id, updates) =>
+        set((state) => {
+          const existing = state.sessions[id];
+          if (!existing) return state;
+          return {
+            sessions: { ...state.sessions, [id]: { ...existing, ...updates } },
+          };
+        }),
+
+      saveMessages: (id, messages) =>
+        set((state) => {
+          const existing = state.sessions[id];
+          if (!existing) return state;
+          return {
+            sessions: { ...state.sessions, [id]: { ...existing, messages, lastActive: Date.now() } },
+          };
+        }),
     }),
-
-  saveMessages: (id, messages) =>
-    set((state) => {
-      const existing = state.sessions[id];
-      if (!existing) return state;
-      return {
-        sessions: { ...state.sessions, [id]: { ...existing, messages, lastActive: Date.now() } },
-      };
-    }),
-}));
+    {
+      name: 'claude-agent-chat-sessions',
+      storage: createJSONStorage(() => storageProxy),
+    }
+  )
+);

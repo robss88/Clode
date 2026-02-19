@@ -23,7 +23,14 @@
       "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd responsive layout for narrow window/sidebar mode\n\n- Auto-hide side panels when window width < 500px\n- Hide right panel when < 800px  \n- Compact header with smaller title and icons when narrow\n- Menu button in narrow mode to access panels\n- Breakpoints: NARROW_WIDTH=500, MEDIUM_WIDTH=800\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git push:*)",
       "Bash(git commit:*)",
-      "Bash(npx turbo build:*)"
+      "Bash(npx turbo build:*)",
+      "Bash(git status:*)",
+      "Bash(npx vsce package:*)",
+      "Bash(code --install-extension:*)",
+      "Bash(code --list-extensions:*)",
+      "Bash(code --uninstall-extension:*)",
+      "Bash(npm run build:extension:*)",
+      "Bash(npm run vscode:*)"
     ]
   }
 }

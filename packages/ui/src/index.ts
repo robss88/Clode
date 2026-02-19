@@ -15,6 +15,7 @@ export {
   useProjectStore,
   useUIStore,
   useChatSessionStore,
+  configureStorage,
 } from './stores';
 
 // Hooks
