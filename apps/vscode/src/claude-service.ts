@@ -191,6 +191,32 @@ export class ClaudeService {
     }
   }
 
+  async switchGitBranch(branchName: string): Promise<void> {
+    if (!this.checkpointManager) return;
+    await this.checkpointManager.switchToBranch(branchName);
+  }
+
+  async createGitBranch(name: string): Promise<void> {
+    if (!this.checkpointManager) return;
+    await this.checkpointManager.createSession(name);
+  }
+
+  async pushToRemote(): Promise<void> {
+    if (!this.checkpointManager) return;
+    const { execSync } = require('child_process');
+    const branch = await this.getCurrentGitBranch();
+    try {
+      execSync('git push', { cwd: this.workingDir, stdio: 'pipe' });
+    } catch {
+      // No upstream — set it automatically
+      if (branch) {
+        execSync(`git push --set-upstream origin ${branch}`, { cwd: this.workingDir, stdio: 'pipe' });
+      } else {
+        throw new Error('No branch to push');
+      }
+    }
+  }
+
   async switchChatSession(chatSessionId: string): Promise<void> {
     if (!this.claudeManager) return;
     this.currentChatSessionId = chatSessionId;

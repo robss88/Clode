@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   ChatInterface,
-  CommitTimeline,
+  GitPanel,
   useAgentStore,
   useUIStore,
   useChatSessionStore,
@@ -21,6 +21,7 @@ export default function App() {
   const [editSnapshot, setEditSnapshot] = useState<{ messages: Message[]; headHash: string } | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [commits, setCommits] = useState<GitCommit[]>([]);
+  const [branches, setBranches] = useState<GitBranch[]>([]);
   const [currentHead, setCurrentHead] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'chat' | 'git'>('chat');
 
@@ -51,6 +52,8 @@ export default function App() {
     try {
       const branch = await bridge.getCurrentGitBranch();
       setCurrentBranch(branch || null);
+      const branchList = await bridge.listGitBranches();
+      setBranches(branchList);
     } catch (err) {
       console.error('[Webview] refreshBranches failed:', err);
     }
@@ -238,7 +241,7 @@ export default function App() {
           bridge.setModel(model);
         },
         onSetMode: (mode) => {
-          useUIStore.getState().setMode(mode as 'agent' | 'plan' | 'chat');
+          useUIStore.getState().setMode(mode as 'ask' | 'plan' | 'agent' | 'yolo');
         },
         onAddSystemMessage: addSystemMessage,
       });
@@ -408,6 +411,22 @@ export default function App() {
     // No-op for MVP — could open a VS Code diff editor in the future
   }, []);
 
+  const handleSwitchBranch = useCallback(async (branchName: string) => {
+    await bridge.switchGitBranch(branchName);
+    await refreshBranches();
+    await refreshCommits();
+  }, [bridge, refreshBranches, refreshCommits]);
+
+  const handleCreateBranch = useCallback(async (name: string) => {
+    await bridge.createGitBranch(name);
+    await refreshBranches();
+    await refreshCommits();
+  }, [bridge, refreshBranches, refreshCommits]);
+
+  const handlePushToRemote = useCallback(async () => {
+    await bridge.pushToRemote();
+  }, [bridge]);
+
   // New chat on current branch
   const handleNewChat = useCallback(() => {
     // Save current messages to active chat
@@ -516,18 +535,21 @@ export default function App() {
             onCancelEdit={handleCancelEdit}
             onReadFile={(path) => bridge.readFile(path)}
             onImplementPlan={handleImplementPlan}
+            onModelChange={(model) => bridge.setModel(model)}
           />
           </div>
         ) : (
-          <div className="h-full overflow-y-auto">
-            <CommitTimeline
-              commits={commits}
-              currentBranch={currentBranch}
-              currentCommitHash={currentHead}
-              onCheckoutCommit={handleCheckoutCommit}
-              onPreviewCommit={handlePreviewCommit}
-            />
-          </div>
+          <GitPanel
+            branches={branches}
+            commits={commits}
+            currentBranch={currentBranch}
+            currentCommitHash={currentHead}
+            onSwitchBranch={handleSwitchBranch}
+            onCreateBranch={handleCreateBranch}
+            onCheckoutCommit={handleCheckoutCommit}
+            onPreviewCommit={handlePreviewCommit}
+            onPushToRemote={handlePushToRemote}
+          />
         )}
       </div>
     </div>

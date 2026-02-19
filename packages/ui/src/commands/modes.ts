@@ -9,25 +9,31 @@ export interface ModeDefinition {
 }
 
 export const MODES: Record<AgentMode, ModeDefinition> = {
-  agent: {
-    id: 'agent',
-    label: 'Agent',
-    description: 'Full autonomous agent with all tools',
-    placeholder: 'Message Claude... (@ to mention files, / for commands)',
-    extraFlags: [],
+  ask: {
+    id: 'ask',
+    label: 'Ask',
+    description: 'Conversation only, no file changes',
+    placeholder: 'Ask Claude anything...',
+    extraFlags: [
+      '--max-turns', '1',
+      '--append-system-prompt',
+      'You are in ASK mode. Answer questions conversationally. Do NOT use any tools — no file reads, writes, edits, or bash commands. If the user asks you to make changes, explain what you would do but do not execute.',
+    ],
   },
   plan: {
     id: 'plan',
     label: 'Plan',
-    description: 'Creates a plan for review before implementation',
+    description: 'Reads code, creates plans before implementation',
     placeholder: 'Describe what you want to build...',
     extraFlags: [
       '--max-turns', '1',
+      '--dangerously-skip-permissions',
       '--append-system-prompt',
-      `You are in PLAN MODE. Your job is to create a detailed implementation plan, NOT to implement it.
+      `You are in PLAN MODE. Your job is to read code and create a detailed implementation plan, NOT to implement it.
 
 RULES:
-- Do NOT use any tools (no file reads, writes, edits, or bash commands)
+- You MAY use read-only tools (Read, Glob, Grep) to understand the codebase
+- Do NOT use any write tools (Write, Edit, Bash) — do not modify any files
 - Analyze the request and create a structured markdown plan
 - Include: files to modify, specific changes needed, implementation order
 - Use code snippets to show key changes
@@ -36,15 +42,24 @@ RULES:
 Format your plan with clear headers and bullet points.`,
     ],
   },
-  chat: {
-    id: 'chat',
-    label: 'Chat',
-    description: 'Conversation only, no file changes',
-    placeholder: 'Chat with Claude... (no tools, conversation only)',
+  agent: {
+    id: 'agent',
+    label: 'Agent',
+    description: 'Full autonomous agent with all tools',
+    placeholder: 'Message Claude... (@ to mention files, / for commands)',
     extraFlags: [
-      '--max-turns', '1',
+      '--dangerously-skip-permissions',
+    ],
+  },
+  yolo: {
+    id: 'yolo',
+    label: 'YOLO',
+    description: 'Full autonomy, no guardrails',
+    placeholder: 'Tell Claude what to do — no limits...',
+    extraFlags: [
+      '--dangerously-skip-permissions',
       '--append-system-prompt',
-      'You are in chat-only mode. Do NOT use any tools - no file reads, writes, edits, or bash commands. Only have a conversation with the user. If they ask you to make changes, explain what you would do but do not execute.',
+      'You are in YOLO mode. Execute tasks fully and autonomously. Make all necessary changes without hesitation. Be fast and thorough — do not ask for confirmation, just do it.',
     ],
   },
 };

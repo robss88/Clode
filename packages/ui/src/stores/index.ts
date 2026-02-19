@@ -13,7 +13,7 @@ import type {
 // Shared Types
 // ============================================================================
 
-export type AgentMode = 'agent' | 'plan' | 'chat';
+export type AgentMode = 'ask' | 'plan' | 'agent' | 'yolo';
 
 // ============================================================================
 // Agent Store - Chat and Claude Code state
@@ -265,12 +265,14 @@ export interface LayoutState {
 export interface UIState {
   theme: 'light' | 'dark' | 'system';
   mode: AgentMode;
+  model: string;
   layout: LayoutState;
   selectedFile: string | null;
   diffFile: string | null;
 
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setMode: (mode: AgentMode) => void;
+  setModel: (model: string) => void;
   toggleLeftPanel: () => void;
   toggleRightPanel: () => void;
   toggleBottomPanel: () => void;
@@ -286,6 +288,7 @@ export const useUIStore = create<UIState>()(
     (set) => ({
       theme: 'dark',
       mode: 'agent' as AgentMode,
+      model: 'sonnet',
       layout: {
         leftPanel: { isOpen: true, size: 260 },
         rightPanel: { isOpen: true, size: 300 },
@@ -296,6 +299,7 @@ export const useUIStore = create<UIState>()(
 
       setTheme: (theme) => set({ theme }),
       setMode: (mode) => set({ mode }),
+      setModel: (model) => set({ model }),
 
       toggleLeftPanel: () =>
         set((state) => ({
@@ -360,6 +364,17 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'claude-agent-ui',
+      version: 1,
+      migrate: (persistedState: any, version: number) => {
+        if (version === 0) {
+          // Migrate old mode values ('chat') to new ones ('ask')
+          const VALID_MODES = ['ask', 'plan', 'agent', 'yolo'];
+          if (!VALID_MODES.includes(persistedState.mode)) {
+            persistedState.mode = persistedState.mode === 'chat' ? 'ask' : 'agent';
+          }
+        }
+        return persistedState;
+      },
     }
   )
 );

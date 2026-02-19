@@ -20,13 +20,18 @@ import {
   X,
   Paperclip,
   Upload,
+  Play,
+  ChevronRight,
+  Wrench,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import clsx from 'clsx';
 import type { Message, ToolCall, FileNode } from '@claude-agent/core';
-import { useAgentStore } from '../../stores';
-import { getAvailableCommands, parseSlashCommand } from '../../commands';
+import { useAgentStore, useUIStore } from '../../stores';
+import { getAvailableCommands, parseSlashCommand, MODES } from '../../commands';
+import { ModeSelector } from './ModeSelector';
+import { ModelSelector } from './ModelSelector';
 
 interface AttachedFile {
   path: string;
@@ -39,11 +44,15 @@ interface ChatInterfaceProps {
   streamingContent?: string;
   currentToolCall?: ToolCall | null;
   fileTree?: FileNode | null;
+  isEditing?: boolean;
   onSendMessage: (content: string) => void;
   onInterrupt: () => void;
   onRestoreToMessage?: (messageId: string) => void;
   onEditMessage?: (messageId: string) => void;
+  onCancelEdit?: () => void;
   onReadFile?: (path: string) => Promise<string | null>;
+  onImplementPlan?: (planContent: string) => void;
+  onModelChange?: (model: string) => void;
 }
 
 // Flatten file tree to get all file paths
@@ -68,11 +77,15 @@ export function ChatInterface({
   streamingContent = '',
   currentToolCall,
   fileTree,
+  isEditing,
   onSendMessage,
   onInterrupt,
   onRestoreToMessage,
   onEditMessage,
+  onCancelEdit,
   onReadFile,
+  onImplementPlan,
+  onModelChange,
 }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
   const [showMentions, setShowMentions] = useState(false);
@@ -89,6 +102,15 @@ export function ChatInterface({
   const mentionListRef = useRef<HTMLDivElement>(null);
   const slashListRef = useRef<HTMLDivElement>(null);
   const dragCountRef = useRef(0);
+
+  // Mode selector
+  const mode = useUIStore((state) => state.mode);
+  const setMode = useUIStore((state) => state.setMode);
+  const currentModeDefinition = MODES[mode];
+
+  // Model selector
+  const model = useUIStore((state) => state.model);
+  const setModel = useUIStore((state) => state.setModel);
 
   // Subscribe to draft input from store (set when editing a previous message)
   const draftInput = useAgentStore((state) => state.draftInput);
@@ -383,13 +405,34 @@ export function ChatInterface({
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
         <AnimatePresence initial={false}>
           {messages.map((message, index) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              previousMessage={index > 0 ? messages[index - 1] : undefined}
-              onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
-              onEdit={message.role === 'user' && onEditMessage ? () => onEditMessage(message.id) : undefined}
-            />
+            <React.Fragment key={message.id}>
+              <MessageBubble
+                message={message}
+                previousMessage={index > 0 ? messages[index - 1] : undefined}
+                onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
+                onEdit={message.role === 'user' && onEditMessage ? () => onEditMessage(message.id) : undefined}
+              />
+              {/* Implement Plan button — shown on the last assistant message when in plan mode */}
+              {mode === 'plan' &&
+                !isStreaming &&
+                message.role === 'assistant' &&
+                index === messages.length - 1 &&
+                onImplementPlan && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex justify-center py-2"
+                  >
+                    <button
+                      onClick={() => onImplementPlan(message.content)}
+                      className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors"
+                    >
+                      <Play className="w-4 h-4" />
+                      Implement Plan
+                    </button>
+                  </motion.div>
+                )}
+            </React.Fragment>
           ))}
         </AnimatePresence>
 
@@ -445,6 +488,21 @@ export function ChatInterface({
           <span>Streaming: {isStreaming ? 'yes' : 'no'}</span>
           <span>Content: {streamingContent.length} chars</span>
           <span>Tool: {currentToolCall?.name || 'none'}</span>
+        </div>
+      )}
+
+      {/* Edit cancel banner */}
+      {isEditing && (
+        <div className="flex items-center justify-between px-4 py-2 bg-warning/10 border-t border-warning/30">
+          <span className="text-xs text-warning font-medium">Editing message — changes will be discarded</span>
+          <button
+            type="button"
+            onClick={onCancelEdit}
+            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-warning hover:text-warning/80 bg-warning/10 hover:bg-warning/20 rounded transition-colors"
+          >
+            <X className="w-3 h-3" />
+            Cancel
+          </button>
         </div>
       )}
 
@@ -552,7 +610,7 @@ export function ChatInterface({
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Message Claude... (@ to mention files, / for commands)"
+            placeholder={currentModeDefinition?.placeholder || 'Message Claude...'}
             disabled={isStreaming}
             rows={1}
             className="input pr-24 resize-none min-h-[52px] max-h-[200px]"
@@ -588,10 +646,68 @@ export function ChatInterface({
             )}
           </div>
         </form>
-        <p className="text-xs text-foreground-muted mt-2 text-center">
-          Enter to send, Shift+Enter for new line, @ files, / commands
-        </p>
+        <div className="flex items-center justify-between mt-2">
+          <div className="flex items-center gap-1">
+            <ModeSelector mode={mode} onModeChange={setMode} />
+            <ModelSelector
+              model={model}
+              onModelChange={(m) => {
+                setModel(m);
+                onModelChange?.(m);
+              }}
+            />
+          </div>
+          <p className="text-xs text-foreground-muted">
+            Enter to send, Shift+Enter for new line
+          </p>
+        </div>
       </div>
+    </div>
+  );
+}
+
+// Parse <file path="...">content</file> tags from message content
+function parseFileContext(content: string): { files: Array<{ path: string; name: string }>; textContent: string } {
+  const fileRegex = /<file\s+path="([^"]+)">\n?[\s\S]*?\n?<\/file>/g;
+  const files: Array<{ path: string; name: string }> = [];
+  let match;
+  while ((match = fileRegex.exec(content)) !== null) {
+    const filePath = match[1];
+    const name = filePath.split('/').pop() || filePath;
+    files.push({ path: filePath, name });
+  }
+  const textContent = content.replace(fileRegex, '').replace(/^\n+/, '').trim();
+  return { files, textContent };
+}
+
+function FileContextPills({ files }: { files: Array<{ path: string; name: string }> }) {
+  const [expanded, setExpanded] = useState(false);
+  if (files.length === 0) return null;
+
+  const shown = expanded ? files : files.slice(0, 3);
+  const remaining = files.length - 3;
+
+  return (
+    <div className="flex flex-wrap gap-1 mb-2">
+      {shown.map((file) => (
+        <span
+          key={file.path}
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-accent/10 border border-accent/20 rounded text-[11px] text-accent"
+          title={file.path}
+        >
+          <File className="w-3 h-3" />
+          {file.name}
+        </span>
+      ))}
+      {!expanded && remaining > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="inline-flex items-center px-1.5 py-0.5 text-[11px] text-foreground-muted hover:text-accent transition-colors"
+        >
+          +{remaining} more
+        </button>
+      )}
     </div>
   );
 }
@@ -675,7 +791,15 @@ function MessageBubble({
         {/* Content */}
         <div className={clsx('flex-1 min-w-0', isUser && 'flex justify-end')}>
           <div className={clsx('message relative', isUser ? 'message-user' : 'message-assistant')}>
-            <MarkdownContent content={message.content} />
+            {(() => {
+              const { files, textContent } = isUser ? parseFileContext(message.content) : { files: [], textContent: message.content };
+              return (
+                <>
+                  <FileContextPills files={files} />
+                  <MarkdownContent content={textContent} />
+                </>
+              );
+            })()}
 
             {/* Edit button for user messages (visible on hover) */}
             {isUser && onEdit && (
@@ -692,13 +816,9 @@ function MessageBubble({
             )}
           </div>
 
-          {/* Tool calls */}
+          {/* Tool calls (grouped) */}
           {message.toolCalls && message.toolCalls.length > 0 && (
-            <div className="mt-2 space-y-2">
-              {message.toolCalls.map((toolCall) => (
-                <ToolCallIndicator key={toolCall.id} toolCall={toolCall} />
-              ))}
-            </div>
+            <ToolCallGroup toolCalls={message.toolCalls} />
           )}
         </div>
       </motion.div>
@@ -706,51 +826,161 @@ function MessageBubble({
   );
 }
 
-function ToolCallIndicator({ toolCall }: { toolCall: ToolCall }) {
-  const getIcon = () => {
-    switch (toolCall.name.toLowerCase()) {
-      case 'read':
-      case 'read_file':
-        return <FolderSearch className="w-4 h-4" />;
-      case 'write':
-      case 'edit':
-        return <FileEdit className="w-4 h-4" />;
-      case 'bash':
-        return <TerminalIcon className="w-4 h-4" />;
-      default:
-        return <Code className="w-4 h-4" />;
-    }
-  };
+// Get a human-readable summary of what a tool call is doing
+function getToolCallSummary(toolCall: ToolCall): string {
+  const input = toolCall.input || {};
+  switch (toolCall.name.toLowerCase()) {
+    case 'read':
+    case 'read_file':
+      return input.file_path
+        ? `Reading ${String(input.file_path).split('/').pop()}`
+        : 'Reading file';
+    case 'write':
+      return input.file_path
+        ? `Writing ${String(input.file_path).split('/').pop()}`
+        : 'Writing file';
+    case 'edit':
+      return input.file_path
+        ? `Editing ${String(input.file_path).split('/').pop()}`
+        : 'Editing file';
+    case 'bash':
+      const cmd = String(input.command || '').slice(0, 60);
+      return cmd ? `Running: ${cmd}` : 'Running command';
+    case 'glob':
+      return input.pattern ? `Searching: ${input.pattern}` : 'Searching files';
+    case 'grep':
+      return input.pattern ? `Grep: ${input.pattern}` : 'Searching content';
+    default:
+      return toolCall.name;
+  }
+}
 
-  const getStatusIcon = () => {
-    switch (toolCall.status) {
-      case 'running':
-        return <Loader2 className="w-4 h-4 animate-spin text-accent" />;
-      case 'completed':
-        return <CheckCircle2 className="w-4 h-4 text-success" />;
-      case 'error':
-        return <XCircle className="w-4 h-4 text-error" />;
-      default:
-        return null;
-    }
-  };
+function getToolIcon(name: string) {
+  switch (name.toLowerCase()) {
+    case 'read':
+    case 'read_file':
+      return <FolderSearch className="w-3.5 h-3.5" />;
+    case 'write':
+    case 'edit':
+      return <FileEdit className="w-3.5 h-3.5" />;
+    case 'bash':
+      return <TerminalIcon className="w-3.5 h-3.5" />;
+    default:
+      return <Code className="w-3.5 h-3.5" />;
+  }
+}
+
+function getStatusIcon(status: ToolCall['status']) {
+  switch (status) {
+    case 'running':
+      return <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />;
+    case 'completed':
+      return <CheckCircle2 className="w-3.5 h-3.5 text-success" />;
+    case 'error':
+      return <XCircle className="w-3.5 h-3.5 text-error" />;
+    default:
+      return null;
+  }
+}
+
+function ToolCallGroup({ toolCalls }: { toolCalls: ToolCall[] }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const completedCount = toolCalls.filter((t) => t.status === 'completed').length;
+  const hasRunning = toolCalls.some((t) => t.status === 'running');
+  const hasError = toolCalls.some((t) => t.status === 'error');
 
   return (
-    <motion.div
-      initial={{ opacity: 0, x: -10 }}
-      animate={{ opacity: 1, x: 0 }}
-      className={clsx(
-        'tool-call',
-        toolCall.status === 'running' && 'tool-call-running',
-        toolCall.status === 'completed' && 'tool-call-completed',
-        toolCall.status === 'error' && 'tool-call-error'
+    <div className="mt-2">
+      {/* Group header */}
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className={clsx(
+          'w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors',
+          'border border-border hover:bg-background-hover',
+          hasRunning && 'border-accent/30 bg-accent/5',
+          hasError && 'border-error/30 bg-error/5'
+        )}
+      >
+        <ChevronRight
+          className={clsx(
+            'w-3.5 h-3.5 transition-transform text-foreground-muted',
+            isExpanded && 'rotate-90'
+          )}
+        />
+        <Wrench className="w-3.5 h-3.5 text-foreground-muted" />
+        <span className="text-foreground-muted">
+          {hasRunning
+            ? `Running tool...`
+            : `${completedCount} tool call${completedCount !== 1 ? 's' : ''}`}
+        </span>
+        <span className="flex-1" />
+        {hasRunning && <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />}
+        {!hasRunning && hasError && <XCircle className="w-3.5 h-3.5 text-error" />}
+        {!hasRunning && !hasError && completedCount === toolCalls.length && (
+          <CheckCircle2 className="w-3.5 h-3.5 text-success" />
+        )}
+      </button>
+
+      {/* Expanded tool calls */}
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="ml-3 mt-1 space-y-1 border-l-2 border-border pl-3">
+              {toolCalls.map((toolCall) => (
+                <ToolCallIndicator key={toolCall.id} toolCall={toolCall} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function ToolCallIndicator({ toolCall }: { toolCall: ToolCall }) {
+  const [showDetails, setShowDetails] = useState(false);
+  const summary = getToolCallSummary(toolCall);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setShowDetails(!showDetails)}
+        className={clsx(
+          'w-full flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors',
+          'hover:bg-background-hover',
+          toolCall.status === 'running' && 'text-accent',
+          toolCall.status === 'error' && 'text-error'
+        )}
+      >
+        {getToolIcon(toolCall.name)}
+        <span className="truncate text-left flex-1">{summary}</span>
+        {getStatusIcon(toolCall.status)}
+      </button>
+      {showDetails && (
+        <div className="ml-6 mt-0.5 mb-1 px-2 py-1.5 bg-background rounded text-[11px] font-mono text-foreground-muted overflow-x-auto">
+          <div className="text-foreground-muted/60 mb-1">Input:</div>
+          <pre className="whitespace-pre-wrap break-all">
+            {JSON.stringify(toolCall.input, null, 2).slice(0, 500)}
+          </pre>
+          {toolCall.output && (
+            <>
+              <div className="text-foreground-muted/60 mt-1.5 mb-1">Output:</div>
+              <pre className="whitespace-pre-wrap break-all">
+                {toolCall.output.slice(0, 500)}
+              </pre>
+            </>
+          )}
+        </div>
       )}
-    >
-      {getIcon()}
-      <span className="font-mono text-xs">{toolCall.name}</span>
-      <span className="flex-1" />
-      {getStatusIcon()}
-    </motion.div>
+    </div>
   );
 }
 

@@ -90,6 +90,21 @@ export class MessageHandler {
           result = await this.service.getGitCommitDiff(data?.hash);
           break;
 
+        case 'git:switch-branch':
+          await this.service.switchGitBranch(data?.branchName);
+          result = true;
+          break;
+
+        case 'git:create-branch':
+          await this.service.createGitBranch(data?.name);
+          result = true;
+          break;
+
+        case 'git:push':
+          await this.service.pushToRemote();
+          result = true;
+          break;
+
         // Chat session
         case 'chat:switch':
           await this.service.switchChatSession(data?.chatSessionId);

@@ -1,24 +1,25 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, Map, MessageCircle, Zap, ChevronDown } from 'lucide-react';
+import { ChevronDown, Cpu } from 'lucide-react';
 import clsx from 'clsx';
-import { MODES } from '../../commands/modes';
-import type { AgentMode } from '../../stores';
 
-const MODE_ICONS: Record<AgentMode, React.ComponentType<{ className?: string }>> = {
-  ask: MessageCircle,
-  plan: Map,
-  agent: Bot,
-  yolo: Zap,
-};
-
-const MODE_ORDER: AgentMode[] = ['ask', 'plan', 'agent', 'yolo'];
-
-interface ModeSelectorProps {
-  mode: AgentMode;
-  onModeChange: (mode: AgentMode) => void;
+export interface ModelOption {
+  id: string;
+  label: string;
+  description: string;
 }
 
-export function ModeSelector({ mode, onModeChange }: ModeSelectorProps) {
+const MODELS: ModelOption[] = [
+  { id: 'sonnet', label: 'Sonnet', description: 'Fast & capable' },
+  { id: 'opus', label: 'Opus', description: 'Most powerful' },
+  { id: 'haiku', label: 'Haiku', description: 'Fastest & cheapest' },
+];
+
+interface ModelSelectorProps {
+  model: string;
+  onModelChange: (model: string) => void;
+}
+
+export function ModelSelector({ model, onModelChange }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -44,25 +45,22 @@ export function ModeSelector({ mode, onModeChange }: ModeSelectorProps) {
     }
   }, [isOpen]);
 
-  const currentMode = MODES[mode];
-  const Icon = MODE_ICONS[mode];
+  const currentModel = MODELS.find((m) => m.id === model) || MODELS[0];
 
   return (
     <div ref={ref} className="relative">
       {/* Dropdown (opens upward) */}
       {isOpen && (
-        <div className="absolute bottom-full left-0 mb-1 w-64 bg-background-secondary border border-border rounded-lg shadow-xl z-30 overflow-hidden">
+        <div className="absolute bottom-full left-0 mb-1 w-52 bg-background-secondary border border-border rounded-lg shadow-xl z-30 overflow-hidden">
           <div className="p-1">
-            {MODE_ORDER.map((modeId) => {
-              const def = MODES[modeId];
-              const ModeIcon = MODE_ICONS[modeId];
-              const isActive = modeId === mode;
+            {MODELS.map((m) => {
+              const isActive = m.id === model;
               return (
                 <button
-                  key={modeId}
+                  key={m.id}
                   type="button"
                   onClick={() => {
-                    onModeChange(modeId);
+                    onModelChange(m.id);
                     setIsOpen(false);
                   }}
                   className={clsx(
@@ -72,10 +70,10 @@ export function ModeSelector({ mode, onModeChange }: ModeSelectorProps) {
                       : 'hover:bg-background-hover text-foreground'
                   )}
                 >
-                  <ModeIcon className="w-4 h-4 flex-shrink-0" />
+                  <Cpu className="w-4 h-4 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium">{def.label}</div>
-                    <div className="text-xs text-foreground-muted">{def.description}</div>
+                    <div className="text-sm font-medium">{m.label}</div>
+                    <div className="text-xs text-foreground-muted">{m.description}</div>
                   </div>
                 </button>
               );
@@ -94,8 +92,8 @@ export function ModeSelector({ mode, onModeChange }: ModeSelectorProps) {
           isOpen ? 'bg-background-hover text-accent' : 'text-foreground-muted'
         )}
       >
-        <Icon className="w-3.5 h-3.5" />
-        <span>{currentMode.label}</span>
+        <Cpu className="w-3.5 h-3.5" />
+        <span>{currentModel.label}</span>
         <ChevronDown className={clsx('w-3 h-3 transition-transform', isOpen && 'rotate-180')} />
       </button>
     </div>

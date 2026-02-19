@@ -91,6 +91,9 @@ export function createVSCodeBridge(): PlatformBridge {
     listGitCommits: (maxCount) => invoke('git:list-commits', { maxCount }),
     checkoutGitCommit: (hash) => invoke('git:checkout-commit', { hash }),
     getGitCommitDiff: (hash) => invoke('git:commit-diff', { hash }),
+    switchGitBranch: (branchName) => invoke('git:switch-branch', { branchName }),
+    createGitBranch: (name) => invoke('git:create-branch', { name }),
+    pushToRemote: () => invoke('git:push'),
 
     // Chat sessions
     switchChatSession: (id) => invoke('chat:switch', { chatSessionId: id }),

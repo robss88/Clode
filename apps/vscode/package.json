@@ -88,9 +88,10 @@
   },
   "scripts": {
     "build": "npm run build:extension && npm run build:webview",
-    "build:extension": "tsup src/extension.ts --format cjs --external vscode",
+    "build:extension": "tsup --config tsup.config.ts",
     "build:webview": "vite build --config src/webview/vite.config.ts",
-    "dev": "npm run build:webview && tsup src/extension.ts --format cjs --external vscode --watch",
+    "dev": "npm run build && tsup --config tsup.config.ts --watch",
+    "dev:all": "npm run build:webview && tsup --config tsup.config.ts --watch",
     "package": "vsce package",
     "publish": "vsce publish"
   },

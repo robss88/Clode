@@ -25,6 +25,9 @@ export interface PlatformBridge {
   listGitCommits(maxCount?: number): Promise<GitCommit[]>;
   checkoutGitCommit(hash: string): Promise<void>;
   getGitCommitDiff(hash: string): Promise<string>;
+  switchGitBranch(branchName: string): Promise<void>;
+  createGitBranch(name: string): Promise<void>;
+  pushToRemote(): Promise<void>;
 
   // Chat sessions
   switchChatSession(id: string): Promise<void>;

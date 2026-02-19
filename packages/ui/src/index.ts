@@ -2,6 +2,7 @@
 export { Layout } from './components/Layout';
 export { ChatInterface } from './components/Chat';
 export { CommitTimeline, CheckpointTimeline } from './components/Checkpoints';
+export { GitPanel } from './components/GitPanel';
 export { FileExplorer } from './components/FileExplorer';
 export { DiffViewer } from './components/DiffViewer';
 export { EmbeddedTerminal } from './components/Terminal';
