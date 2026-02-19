@@ -136,9 +136,11 @@ export interface Session {
 export interface ChatSession {
   id: string;
   branch: string;
+  branchName: string;
   name: string;
   messages: Message[];
   createdAt: number;
+  lastActive: number;
 }
 
 // ----------------------------------------------------------------------------

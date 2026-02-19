@@ -34,6 +34,7 @@ export interface AgentState {
   clearStreamingContent: () => void;
   setCurrentToolCall: (toolCall: ToolCall | null) => void;
   clearMessages: () => void;
+  setMessages: (messages: Message[]) => void;
   truncateAfterMessage: (messageId: string) => void;
   setDraftInput: (content: string) => void;
 }
@@ -77,6 +78,9 @@ export const useAgentStore = create<AgentState>((set) => ({
 
   clearMessages: () =>
     set((state) => ({ messages: [], streamingContent: '', updateCount: state.updateCount + 1 })),
+
+  setMessages: (messages) =>
+    set((state) => ({ messages, updateCount: state.updateCount + 1 })),
 
   truncateAfterMessage: (messageId) =>
     set((state) => {
@@ -391,9 +395,11 @@ export const useChatSessionStore = create<ChatSessionState>((set, get) => ({
     const chat: ChatSession = {
       id,
       branch,
+      branchName: branch,
       name,
       messages: [],
       createdAt: Date.now(),
+      lastActive: Date.now(),
     };
     set((state) => ({
       sessions: { ...state.sessions, [id]: chat },
@@ -418,7 +424,7 @@ export const useChatSessionStore = create<ChatSessionState>((set, get) => ({
       const existing = state.sessions[id];
       if (!existing) return state;
       return {
-        sessions: { ...state.sessions, [id]: { ...existing, messages } },
+        sessions: { ...state.sessions, [id]: { ...existing, messages, lastActive: Date.now() } },
       };
     }),
 }));

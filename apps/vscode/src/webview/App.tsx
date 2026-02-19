@@ -12,6 +12,7 @@ import type { Message, FileNode, GitBranch, GitCommit } from '@claude-agent/core
 import { MessageSquare, GitCommitHorizontal } from 'lucide-react';
 import clsx from 'clsx';
 import { useBridge } from './bridge/context';
+import { ChatSessionDropdown } from './ChatSessionDropdown';
 
 export default function App() {
   const bridge = useBridge();
@@ -407,6 +408,39 @@ export default function App() {
     // No-op for MVP — could open a VS Code diff editor in the future
   }, []);
 
+  // New chat on current branch
+  const handleNewChat = useCallback(() => {
+    // Save current messages to active chat
+    const currentId = useChatSessionStore.getState().activeChatId;
+    if (currentId) {
+      useChatSessionStore.getState().saveMessages(currentId, useAgentStore.getState().messages);
+    }
+    // Create new chat
+    const branch = currentBranch || 'main';
+    const chatCount = useChatSessionStore.getState().getChatsForBranch(branch).length;
+    const newChat = useChatSessionStore.getState().createChat(branch, `Chat ${chatCount + 1}`);
+    // Clear messages
+    useAgentStore.getState().clearMessages();
+    // Notify extension host
+    bridge.switchChatSession(newChat.id);
+  }, [bridge, currentBranch]);
+
+  // Switch to an existing chat
+  const handleSwitchChat = useCallback((chatId: string) => {
+    // Save current messages to active chat
+    const currentId = useChatSessionStore.getState().activeChatId;
+    if (currentId) {
+      useChatSessionStore.getState().saveMessages(currentId, useAgentStore.getState().messages);
+    }
+    // Load target chat messages
+    const targetChat = useChatSessionStore.getState().sessions[chatId];
+    if (targetChat) {
+      useAgentStore.getState().setMessages(targetChat.messages);
+      useChatSessionStore.getState().setActiveChatId(chatId);
+      bridge.switchChatSession(chatId);
+    }
+  }, [bridge]);
+
   // Auto-refresh when switching to Git tab
   useEffect(() => {
     if (activeTab === 'git') {
@@ -462,7 +496,13 @@ export default function App() {
       {/* Tab Content */}
       <div className="flex-1 overflow-hidden">
         {activeTab === 'chat' ? (
-          <ChatInterface
+          <div className="flex flex-col h-full overflow-hidden">
+            <ChatSessionDropdown
+              currentBranch={currentBranch}
+              onSwitchChat={handleSwitchChat}
+              onNewChat={handleNewChat}
+            />
+            <ChatInterface
             messages={messages}
             isStreaming={isStreaming}
             streamingContent={streamingContent}
@@ -477,6 +517,7 @@ export default function App() {
             onReadFile={(path) => bridge.readFile(path)}
             onImplementPlan={handleImplementPlan}
           />
+          </div>
         ) : (
           <div className="h-full overflow-y-auto">
             <CommitTimeline

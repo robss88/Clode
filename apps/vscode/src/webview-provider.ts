@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 import { ClaudeService } from './claude-service';
 import { MessageHandler } from './message-handler';
 
-export class ClaudeAgentViewProvider implements vscode.WebviewViewProvider {
-  private _view?: vscode.WebviewView;
+export class ClaudeAgentViewProvider {
+  private _panel: vscode.WebviewPanel | null = null;
   private service: ClaudeService | null = null;
   private messageHandler: MessageHandler | null = null;
   private initPromise: Promise<void> | null = null;
@@ -14,25 +14,41 @@ export class ClaudeAgentViewProvider implements vscode.WebviewViewProvider {
     private readonly _workingDir: string | null
   ) {}
 
-  public resolveWebviewView(
-    webviewView: vscode.WebviewView,
-    _context: vscode.WebviewViewResolveContext,
-    _token: vscode.CancellationToken
-  ) {
-    this._view = webviewView;
+  public createPanel() {
+    // If panel already exists, just reveal it
+    if (this._panel) {
+      this._panel.reveal();
+      return;
+    }
 
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [this._extensionUri],
-    };
+    this._panel = vscode.window.createWebviewPanel(
+      'claude-agent',
+      'Claude Agent',
+      vscode.ViewColumn.Beside,
+      {
+        enableScripts: true,
+        localResourceRoots: [this._extensionUri],
+        retainContextWhenHidden: true,
+      }
+    );
 
-    webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+    this._panel.webview.html = this._getHtmlForWebview(this._panel.webview);
+
+    // Clean up on panel close
+    this._panel.onDidDispose(() => {
+      this._panel = null;
+      this.service?.dispose();
+      this.service = null;
+      this.messageHandler = null;
+      this.initPromise = null;
+      this.isReady = false;
+    });
 
     // Initialize service and message handler
     if (this._workingDir) {
       const postMessage = (msg: any) => {
-        if (this._view) {
-          this._view.webview.postMessage(msg);
+        if (this._panel) {
+          this._panel.webview.postMessage(msg);
         }
       };
 
@@ -43,20 +59,22 @@ export class ClaudeAgentViewProvider implements vscode.WebviewViewProvider {
       this.initPromise = this.service.initialize().then(async () => {
         this.isReady = true;
         const branch = await this.service!.getCurrentGitBranch();
-        webviewView.webview.postMessage({
-          type: 'init:state',
-          data: {
-            workspacePath: this._workingDir,
-            branch: branch || null,
-            activeChatSessionId: null,
-            isStreaming: false,
-          },
-        });
+        if (this._panel) {
+          this._panel.webview.postMessage({
+            type: 'init:state',
+            data: {
+              workspacePath: this._workingDir,
+              branch: branch || null,
+              activeChatSessionId: null,
+              isStreaming: false,
+            },
+          });
+        }
       });
     }
 
     // Handle messages from webview — wait for init before processing
-    webviewView.webview.onDidReceiveMessage(async (msg) => {
+    this._panel.webview.onDidReceiveMessage(async (msg) => {
       if (!this.isReady && this.initPromise) {
         await this.initPromise;
       }
@@ -67,8 +85,8 @@ export class ClaudeAgentViewProvider implements vscode.WebviewViewProvider {
   }
 
   public postMessage(message: any) {
-    if (this._view) {
-      this._view.webview.postMessage(message);
+    if (this._panel) {
+      this._panel.webview.postMessage(message);
     }
   }
 
@@ -78,6 +96,7 @@ export class ClaudeAgentViewProvider implements vscode.WebviewViewProvider {
 
   public dispose() {
     this.service?.dispose();
+    this._panel?.dispose();
   }
 
   private _getHtmlForWebview(webview: vscode.Webview): string {

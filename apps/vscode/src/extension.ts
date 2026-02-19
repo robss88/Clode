@@ -8,18 +8,17 @@ export function activate(context: vscode.ExtensionContext) {
 
   const workingDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
 
-  // Register webview provider (uses React bundle from dist/webview/)
   provider = new ClaudeAgentViewProvider(context.extensionUri, workingDir);
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('claude-agent.mainView', provider)
-  );
 
-  // Register commands
+  // Open panel command — creates or reveals the editor panel
   context.subscriptions.push(
     vscode.commands.registerCommand('claude-agent.openPanel', () => {
-      vscode.commands.executeCommand('claude-agent.mainView.focus');
+      provider?.createPanel();
     })
   );
+
+  // Auto-open on activation
+  provider.createPanel();
 
   context.subscriptions.push(
     vscode.commands.registerCommand('claude-agent.createCheckpoint', async () => {
@@ -45,13 +44,13 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('claude-agent.navigateBack', () => {
-      vscode.window.showInformationMessage('Navigate back — use the Git tab in the sidebar');
+      vscode.window.showInformationMessage('Navigate back — use the Git tab');
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('claude-agent.navigateForward', () => {
-      vscode.window.showInformationMessage('Navigate forward — use the Git tab in the sidebar');
+      vscode.window.showInformationMessage('Navigate forward — use the Git tab');
     })
   );
 }

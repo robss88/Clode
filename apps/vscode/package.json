@@ -46,24 +46,6 @@
         "category": "Claude Agent"
       }
     ],
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "claude-agent",
-          "title": "Claude Agent",
-          "icon": "assets/icon.svg"
-        }
-      ]
-    },
-    "views": {
-      "claude-agent": [
-        {
-          "type": "webview",
-          "id": "claude-agent.mainView",
-          "name": "Claude Agent"
-        }
-      ]
-    },
     "keybindings": [
       {
         "command": "claude-agent.openPanel",
