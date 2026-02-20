@@ -8,22 +8,31 @@ import {
   ChevronDown,
   ChevronRight,
   GitCommitHorizontal,
+  FilePlus2,
+  FileEdit,
+  FileX2,
+  FileQuestion,
+  FileSymlink,
+  Check,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { formatDistanceToNow } from 'date-fns';
 import { CommitTimeline } from '../Checkpoints';
-import type { GitBranch, GitCommit } from '@claude-agent/core';
+import type { GitBranch, GitCommit, GitStatus, GitFileStatusCode } from '@claude-agent/core';
 
 interface GitPanelProps {
   branches: GitBranch[];
   commits: GitCommit[];
   currentBranch: string | null;
   currentCommitHash: string | null;
+  gitStatus: GitStatus | null;
   onSwitchBranch: (branchName: string) => void;
   onCreateBranch: (name: string) => void;
   onCheckoutCommit: (hash: string) => void;
   onPreviewCommit: (hash: string) => void;
   onPushToRemote: () => Promise<void>;
+  onCommitAll: (message: string) => Promise<void>;
+  onRefreshStatus: () => void;
 }
 
 export function GitPanel({
@@ -31,11 +40,14 @@ export function GitPanel({
   commits,
   currentBranch,
   currentCommitHash,
+  gitStatus,
   onSwitchBranch,
   onCreateBranch,
   onCheckoutCommit,
   onPreviewCommit,
   onPushToRemote,
+  onCommitAll,
+  onRefreshStatus,
 }: GitPanelProps) {
   const [branchesExpanded, setBranchesExpanded] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -186,6 +198,15 @@ export function GitPanel({
           )}
         </div>
 
+        {/* Uncommitted Changes Section */}
+        {gitStatus && !gitStatus.isClean && (
+          <UncommittedChanges
+            gitStatus={gitStatus}
+            onCommitAll={onCommitAll}
+            onPushToRemote={onPushToRemote}
+          />
+        )}
+
         {/* Commit Timeline Section (reuses existing component, without its own push button) */}
         <div className="flex-1">
           <CommitTimeline
@@ -243,6 +264,181 @@ function PushButton({ onPush }: { onPush: () => Promise<void> }) {
         )}
         <span>{isPushing ? 'Pushing...' : 'Push to Remote'}</span>
       </button>
+    </div>
+  );
+}
+
+// --- Status icon & color helpers ---
+
+const STATUS_CONFIG: Record<GitFileStatusCode, { icon: typeof FileEdit; color: string; label: string }> = {
+  added: { icon: FilePlus2, color: 'text-green-400', label: 'A' },
+  modified: { icon: FileEdit, color: 'text-yellow-400', label: 'M' },
+  deleted: { icon: FileX2, color: 'text-red-400', label: 'D' },
+  renamed: { icon: FileSymlink, color: 'text-blue-400', label: 'R' },
+  untracked: { icon: FileQuestion, color: 'text-foreground-muted', label: '?' },
+};
+
+function FileStatusIcon({ status }: { status: GitFileStatusCode }) {
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.modified;
+  const Icon = cfg.icon;
+  return <Icon className={clsx('w-3.5 h-3.5 flex-shrink-0', cfg.color)} />;
+}
+
+// --- Uncommitted Changes section ---
+
+function UncommittedChanges({
+  gitStatus,
+  onCommitAll,
+  onPushToRemote,
+}: {
+  gitStatus: GitStatus;
+  onCommitAll: (message: string) => Promise<void>;
+  onPushToRemote: () => Promise<void>;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [commitMsg, setCommitMsg] = useState('');
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [commitError, setCommitError] = useState<string | null>(null);
+
+  const totalChanges = gitStatus.files.length;
+
+  const handleCommitAndPush = async () => {
+    const msg = commitMsg.trim();
+    if (!msg || isCommitting) return;
+    setIsCommitting(true);
+    setCommitError(null);
+    try {
+      await onCommitAll(msg);
+      setCommitMsg('');
+      // Push immediately after committing
+      await onPushToRemote();
+    } catch (err: any) {
+      setCommitError(err?.message || 'Commit failed');
+      setTimeout(() => setCommitError(null), 4000);
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  const handleCommitOnly = async () => {
+    const msg = commitMsg.trim();
+    if (!msg || isCommitting) return;
+    setIsCommitting(true);
+    setCommitError(null);
+    try {
+      await onCommitAll(msg);
+      setCommitMsg('');
+    } catch (err: any) {
+      setCommitError(err?.message || 'Commit failed');
+      setTimeout(() => setCommitError(null), 4000);
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  return (
+    <div className="border-b border-border">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-foreground-muted hover:text-foreground transition-colors"
+      >
+        {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        <FileEdit className="w-3 h-3" />
+        <span>Uncommitted Changes</span>
+        <span className="ml-auto bg-yellow-500/20 text-yellow-400 text-2xs font-bold px-1.5 rounded-full">
+          {totalChanges}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-3">
+          {/* Commit message input */}
+          <div className="mb-2">
+            <input
+              type="text"
+              value={commitMsg}
+              onChange={(e) => setCommitMsg(e.target.value)}
+              placeholder="Commit message..."
+              className="w-full px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:border-accent"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleCommitAndPush();
+                }
+              }}
+              disabled={isCommitting}
+            />
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-1.5 mb-2">
+            <button
+              onClick={handleCommitOnly}
+              disabled={!commitMsg.trim() || isCommitting}
+              className={clsx(
+                'flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors',
+                !commitMsg.trim() || isCommitting
+                  ? 'bg-surface-hover text-foreground-muted cursor-not-allowed'
+                  : 'bg-surface-hover hover:bg-accent/20 text-foreground hover:text-accent'
+              )}
+            >
+              {isCommitting ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Check className="w-3 h-3" />
+              )}
+              Commit
+            </button>
+            <button
+              onClick={handleCommitAndPush}
+              disabled={!commitMsg.trim() || isCommitting}
+              className={clsx(
+                'flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors',
+                !commitMsg.trim() || isCommitting
+                  ? 'bg-accent/20 text-accent/50 cursor-not-allowed'
+                  : 'bg-accent hover:bg-accent-hover text-white'
+              )}
+            >
+              {isCommitting ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Upload className="w-3 h-3" />
+              )}
+              Commit & Push
+            </button>
+          </div>
+
+          {commitError && (
+            <p className="text-xs text-error mb-2 truncate" title={commitError}>
+              {commitError}
+            </p>
+          )}
+
+          {/* File list */}
+          <div className="max-h-48 overflow-y-auto space-y-px">
+            {gitStatus.files.map((file) => (
+              <div
+                key={file.path}
+                className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-background-hover"
+              >
+                <FileStatusIcon status={file.status} />
+                <span className="text-xs font-mono truncate flex-1" title={file.path}>
+                  {file.path.includes('/') ? file.path.split('/').pop() : file.path}
+                </span>
+                <span className="text-2xs text-foreground-muted flex-shrink-0 font-mono">
+                  {file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : ''}
+                </span>
+                <span className={clsx(
+                  'text-2xs font-bold flex-shrink-0 w-4 text-center',
+                  STATUS_CONFIG[file.status]?.color || 'text-foreground-muted'
+                )}>
+                  {STATUS_CONFIG[file.status]?.label || '?'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

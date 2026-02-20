@@ -2,7 +2,7 @@ import simpleGit, { SimpleGit, StatusResult } from 'simple-git';
 import { nanoid } from 'nanoid';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import type { Checkpoint, FileChange, Message, ICheckpointTree, Session, GitBranch, GitCommit } from '../types';
+import type { Checkpoint, FileChange, Message, ICheckpointTree, Session, GitBranch, GitCommit, GitStatus, GitFileStatus } from '../types';
 
 const CLAUDE_AGENT_DIR = '.claude-agent';
 const CHECKPOINTS_FILE = 'checkpoints.json';
@@ -551,6 +551,60 @@ export class GitCheckpointStorage {
     } catch {
       return '';
     }
+  }
+
+  /**
+   * Get working tree status (staged, unstaged, untracked files).
+   */
+  async getWorkingTreeStatus(): Promise<GitStatus> {
+    await this.initialize();
+    const status = await this.git.status();
+    const files: GitFileStatus[] = [];
+
+    // Staged files
+    for (const f of status.staged) {
+      const code = status.created.includes(f) ? 'added'
+        : status.deleted.includes(f) ? 'deleted'
+        : status.renamed.some(r => r.to === f) ? 'renamed'
+        : 'modified';
+      files.push({ path: f, status: code, staged: true });
+    }
+
+    // Unstaged modified/deleted (not already counted as staged)
+    for (const f of status.modified) {
+      if (!status.staged.includes(f)) {
+        files.push({ path: f, status: 'modified', staged: false });
+      }
+    }
+    for (const f of status.deleted) {
+      if (!status.staged.includes(f)) {
+        files.push({ path: f, status: 'deleted', staged: false });
+      }
+    }
+
+    // Untracked ("not added") files
+    for (const f of status.not_added) {
+      files.push({ path: f, status: 'untracked', staged: false });
+    }
+
+    return {
+      files,
+      staged: status.staged.length,
+      unstaged: status.modified.filter(f => !status.staged.includes(f)).length
+        + status.deleted.filter(f => !status.staged.includes(f)).length,
+      untracked: status.not_added.length,
+      isClean: status.isClean(),
+    };
+  }
+
+  /**
+   * Stage all changes and commit with a message.
+   */
+  async commitAll(message: string): Promise<string> {
+    await this.initialize();
+    await this.git.add('.');
+    const result = await this.git.commit(message);
+    return result.commit || '';
   }
 
   /**

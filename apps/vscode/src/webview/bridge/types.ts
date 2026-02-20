@@ -1,4 +1,4 @@
-import type { GitBranch, GitCommit } from '@claude-agent/core';
+import type { GitBranch, GitCommit, GitStatus } from '@claude-agent/core';
 
 export interface PlatformBridge {
   // Claude
@@ -28,6 +28,8 @@ export interface PlatformBridge {
   switchGitBranch(branchName: string): Promise<void>;
   createGitBranch(name: string): Promise<void>;
   pushToRemote(): Promise<void>;
+  getGitStatus(): Promise<GitStatus>;
+  gitCommitAll(message: string): Promise<string>;
 
   // Chat sessions
   switchChatSession(id: string): Promise<void>;

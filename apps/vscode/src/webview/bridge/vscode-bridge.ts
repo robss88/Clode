@@ -94,6 +94,8 @@ export function createVSCodeBridge(): PlatformBridge {
     switchGitBranch: (branchName) => invoke('git:switch-branch', { branchName }),
     createGitBranch: (name) => invoke('git:create-branch', { name }),
     pushToRemote: () => invoke('git:push'),
+    getGitStatus: () => invoke('git:status'),
+    gitCommitAll: (message) => invoke('git:commit-all', { message }),
 
     // Chat sessions
     switchChatSession: (id) => invoke('chat:switch', { chatSessionId: id }),

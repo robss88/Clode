@@ -1,7 +1,7 @@
 import { EventEmitter } from 'eventemitter3';
 import { CheckpointTree } from './tree';
 import { GitCheckpointStorage } from './git';
-import type { Checkpoint, Message, Session, GitBranch, GitCommit } from '../types';
+import type { Checkpoint, Message, Session, GitBranch, GitCommit, GitStatus } from '../types';
 
 export interface CheckpointManagerOptions {
   workingDir: string;
@@ -351,6 +351,16 @@ export class CheckpointManager extends EventEmitter<CheckpointManagerEvents> {
   async snapshotDirtyFiles(): Promise<void> {
     await this.initialize();
     return this.storage.snapshotDirtyFiles();
+  }
+
+  async getWorkingTreeStatus(): Promise<GitStatus> {
+    await this.initialize();
+    return this.storage.getWorkingTreeStatus();
+  }
+
+  async commitAll(message: string): Promise<string> {
+    await this.initialize();
+    return this.storage.commitAll(message);
   }
 
   /**

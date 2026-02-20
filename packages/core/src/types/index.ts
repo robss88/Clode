@@ -132,6 +132,22 @@ export interface GitCommit {
   filesChanged: number;
 }
 
+export type GitFileStatusCode = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked';
+
+export interface GitFileStatus {
+  path: string;
+  status: GitFileStatusCode;
+  staged: boolean;
+}
+
+export interface GitStatus {
+  files: GitFileStatus[];
+  staged: number;
+  unstaged: number;
+  untracked: number;
+  isClean: boolean;
+}
+
 // ----------------------------------------------------------------------------
 // Session Types
 // ----------------------------------------------------------------------------

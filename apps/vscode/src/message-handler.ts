@@ -105,6 +105,14 @@ export class MessageHandler {
           result = true;
           break;
 
+        case 'git:status':
+          result = await this.service.getGitStatus();
+          break;
+
+        case 'git:commit-all':
+          result = await this.service.gitCommitAll(data?.message);
+          break;
+
         // Chat session
         case 'chat:switch':
           await this.service.switchChatSession(data?.chatSessionId);

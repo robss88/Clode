@@ -9,7 +9,7 @@ import {
   getModeFlags,
   configureStorage,
 } from '@claude-agent/ui';
-import type { Message, FileNode, GitBranch, GitCommit, ContextItem } from '@claude-agent/core';
+import type { Message, FileNode, GitBranch, GitCommit, GitStatus, ContextItem } from '@claude-agent/core';
 import { MessageSquare, GitCommitHorizontal } from 'lucide-react';
 import clsx from 'clsx';
 import { useBridge } from './bridge/context';
@@ -28,6 +28,7 @@ export default function App() {
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [currentHead, setCurrentHead] = useState<string | null>(null);
+  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [activeTab, setActiveTab] = useState<'chat' | 'git'>('chat');
 
   const {
@@ -61,6 +62,15 @@ export default function App() {
       setBranches(branchList);
     } catch (err) {
       console.error('[Webview] refreshBranches failed:', err);
+    }
+  }, [bridge]);
+
+  const refreshGitStatus = useCallback(async () => {
+    try {
+      const status = await bridge.getGitStatus();
+      setGitStatus(status);
+    } catch (err) {
+      console.error('[Webview] refreshGitStatus failed:', err);
     }
   }, [bridge]);
 
@@ -431,7 +441,14 @@ export default function App() {
 
   const handlePushToRemote = useCallback(async () => {
     await bridge.pushToRemote();
-  }, [bridge]);
+    await refreshGitStatus();
+  }, [bridge, refreshGitStatus]);
+
+  const handleCommitAll = useCallback(async (message: string) => {
+    await bridge.gitCommitAll(message);
+    await refreshCommits();
+    await refreshGitStatus();
+  }, [bridge, refreshCommits, refreshGitStatus]);
 
   // New chat on current branch
   const handleNewChat = useCallback(() => {
@@ -471,8 +488,9 @@ export default function App() {
     if (activeTab === 'git') {
       refreshCommits();
       refreshBranches();
+      refreshGitStatus();
     }
-  }, [activeTab, refreshCommits, refreshBranches]);
+  }, [activeTab, refreshCommits, refreshBranches, refreshGitStatus]);
 
   if (!isReady) {
     return (
@@ -550,11 +568,14 @@ export default function App() {
             commits={commits}
             currentBranch={currentBranch}
             currentCommitHash={currentHead}
+            gitStatus={gitStatus}
             onSwitchBranch={handleSwitchBranch}
             onCreateBranch={handleCreateBranch}
             onCheckoutCommit={handleCheckoutCommit}
             onPreviewCommit={handlePreviewCommit}
             onPushToRemote={handlePushToRemote}
+            onCommitAll={handleCommitAll}
+            onRefreshStatus={refreshGitStatus}
           />
         )}
       </div>

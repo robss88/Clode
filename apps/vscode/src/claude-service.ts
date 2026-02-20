@@ -201,6 +201,20 @@ export class ClaudeService {
     await this.checkpointManager.createSession(name);
   }
 
+  async getGitStatus(): Promise<any> {
+    if (!this.checkpointManager) return { files: [], staged: 0, unstaged: 0, untracked: 0, isClean: true };
+    try {
+      return await this.checkpointManager.getWorkingTreeStatus();
+    } catch {
+      return { files: [], staged: 0, unstaged: 0, untracked: 0, isClean: true };
+    }
+  }
+
+  async gitCommitAll(message: string): Promise<string> {
+    if (!this.checkpointManager) return '';
+    return await this.checkpointManager.commitAll(message);
+  }
+
   async pushToRemote(): Promise<void> {
     if (!this.checkpointManager) return;
     const { execSync } = require('child_process');
