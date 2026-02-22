@@ -310,11 +310,11 @@ export default function App() {
     });
   }, [bridge, addMessage, setStreaming, addSystemMessage]);
 
-  // Implement plan
+  // Implement plan — leverages session resumption so Claude has full planning context
   const handleImplementPlan = useCallback(async (planContent: string) => {
     useUIStore.getState().setMode('agent');
     addSystemMessage('Switching to Agent mode to implement plan...');
-    await handleSendMessage('Implement the following plan:\n\n' + planContent);
+    await handleSendMessage('Now implement the plan you just created. Follow it step by step.');
   }, [handleSendMessage, addSystemMessage]);
 
   // Interrupt

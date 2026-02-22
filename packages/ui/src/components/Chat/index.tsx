@@ -52,15 +52,21 @@ interface ChatInterfaceProps {
 }
 
 // Flatten file tree to get all file paths
-function flattenFileTree(node: FileNode, basePath: string = ''): Array<{ path: string; name: string; type: 'file' | 'directory' }> {
-  const results: Array<{ path: string; name: string; type: 'file' | 'directory' }> = [];
-  const currentPath = basePath ? `${basePath}/${node.name}` : node.name;
+// Uses node.path (absolute) for file reads, and builds a display path relative to the project root.
+function flattenFileTree(node: FileNode, rootPath?: string): Array<{ path: string; displayPath: string; name: string; type: 'file' | 'directory' }> {
+  const root = rootPath ?? node.path;
+  const results: Array<{ path: string; displayPath: string; name: string; type: 'file' | 'directory' }> = [];
 
-  results.push({ path: currentPath, name: node.name, type: node.type });
+  // Compute a short display path relative to project root
+  const displayPath = node.path === root
+    ? node.name
+    : node.path.startsWith(root + '/') ? node.path.slice(root.length + 1) : node.name;
+
+  results.push({ path: node.path, displayPath, name: node.name, type: node.type });
 
   if (node.children) {
     for (const child of node.children) {
-      results.push(...flattenFileTree(child, currentPath));
+      results.push(...flattenFileTree(child, root));
     }
   }
 
@@ -137,7 +143,7 @@ export function ChatInterface({
     if (!mentionQuery) return allFiles.slice(0, 10);
     const query = mentionQuery.toLowerCase();
     return allFiles
-      .filter(f => f.path.toLowerCase().includes(query) || f.name.toLowerCase().includes(query))
+      .filter(f => f.displayPath.toLowerCase().includes(query) || f.name.toLowerCase().includes(query))
       .slice(0, 10);
   }, [allFiles, mentionQuery]);
 
@@ -590,7 +596,7 @@ export function ChatInterface({
                       )}
                     >
                       <File className="w-4 h-4 text-foreground-muted flex-shrink-0" />
-                      <span className="truncate">{file.path}</span>
+                      <span className="truncate">{file.displayPath}</span>
                     </button>
                   ))}
                 </div>

@@ -23,23 +23,22 @@ export const MODES: Record<AgentMode, ModeDefinition> = {
   plan: {
     id: 'plan',
     label: 'Plan',
-    description: 'Reads code, creates plans before implementation',
+    description: 'Explore code and create implementation plans',
     placeholder: 'Describe what you want to build...',
     extraFlags: [
-      '--max-turns', '1',
       '--dangerously-skip-permissions',
+      '--disallowedTools', 'Edit,Write,Bash,NotebookEdit',
       '--append-system-prompt',
-      `You are in PLAN MODE. Your job is to read code and create a detailed implementation plan, NOT to implement it.
+      `IMPORTANT: You are in PLAN MODE. You are a planning assistant. You do NOT implement changes. You ONLY create plans.
 
-RULES:
-- You MAY use read-only tools (Read, Glob, Grep) to understand the codebase
-- Do NOT use any write tools (Write, Edit, Bash) — do not modify any files
-- Analyze the request and create a structured markdown plan
-- Include: files to modify, specific changes needed, implementation order
-- Use code snippets to show key changes
-- End with a summary of the approach
+ABSOLUTE RULES:
+1. NEVER write, edit, or modify any files. You do not have permission to make changes.
+2. NEVER say "I'll make changes", "Let me edit", "I'll add", or "I'll update". You cannot do these things.
+3. ALWAYS respond with a PLAN when the user asks you to do something. Say "Here is a plan for..." not "I'll do..."
+4. USE Read, Glob, and Grep to explore and understand the codebase before planning.
+5. FORMAT your plan as a structured document with: files to modify, specific changes needed (with code snippets), implementation order, and key considerations.
 
-Format your plan with clear headers and bullet points.`,
+The user will click "Implement Plan" when they are ready for changes to be made. Until then, you are read-only.`,
     ],
   },
   agent: {

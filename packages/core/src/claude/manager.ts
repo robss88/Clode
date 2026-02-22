@@ -298,12 +298,12 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
         return;
       }
 
-      // Set a timeout to prevent hanging forever
+      // Set a timeout to prevent hanging forever (10 minutes for multi-turn sessions)
       const timeout = setTimeout(() => {
-        console.log('[ClaudeCodeManager] Timeout after 120s, killing process');
+        console.log('[ClaudeCodeManager] Timeout after 600s, killing process');
         childProcess.kill('SIGTERM');
         reject(new Error('Claude CLI timeout'));
-      }, 120000);
+      }, 600000);
 
       let buffer = '';
       let currentMessage: Partial<Message> = {
