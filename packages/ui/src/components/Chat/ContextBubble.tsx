@@ -11,10 +11,10 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
 };
 
 const TYPE_COLORS: Record<string, string> = {
-  file: 'text-blue-400 bg-blue-400/10 border-blue-400/20',
-  selection: 'text-purple-400 bg-purple-400/10 border-purple-400/20',
-  url: 'text-green-400 bg-green-400/10 border-green-400/20',
-  image: 'text-orange-400 bg-orange-400/10 border-orange-400/20',
+  file: 'text-foreground-secondary bg-background-hover border-border',
+  selection: 'text-foreground-secondary bg-background-hover border-border',
+  url: 'text-foreground-secondary bg-background-hover border-border',
+  image: 'text-foreground-secondary bg-background-hover border-border',
 };
 
 interface ContextBubbleProps {

@@ -432,8 +432,8 @@ export function ChatInterface({
     >
       {/* Drag overlay */}
       {isDragOver && (
-        <div className="absolute inset-0 z-50 bg-accent/10 border-2 border-dashed border-accent rounded-lg flex items-center justify-center">
-          <div className="flex flex-col items-center gap-2 text-accent">
+        <div className="absolute inset-0 z-50 bg-background-tertiary border-2 border-dashed border-foreground-muted rounded-lg flex items-center justify-center">
+          <div className="flex flex-col items-center gap-2 text-foreground-secondary">
             <Upload className="w-10 h-10" />
             <span className="text-sm font-medium">Drop files to attach</span>
           </div>
@@ -453,7 +453,7 @@ export function ChatInterface({
             </p>
           </div>
         )}
-        <div className="px-4 py-6 space-y-4">
+        <div className="px-4 py-6 space-y-3">
         <AnimatePresence initial={false}>
           {messages.map((message, index) => (
             <div
@@ -479,7 +479,7 @@ export function ChatInterface({
                   >
                     <button
                       onClick={() => onImplementPlan(message.content)}
-                      className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors"
+                      className="flex items-center gap-2 px-4 py-2 bg-foreground text-background hover:bg-foreground-secondary text-sm font-medium rounded-lg transition-colors"
                     >
                       <Play className="w-4 h-4" />
                       Implement Plan
@@ -495,12 +495,8 @@ export function ChatInterface({
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex gap-3"
           >
-            <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-bold text-white">C</span>
-            </div>
-            <div className="flex-1 message message-assistant">
+            <div className="message-content message-content-assistant">
               {streamingContent && <MarkdownContent content={streamingContent} />}
               {currentToolCall && (
                 <div className="mt-2">
@@ -519,12 +515,8 @@ export function ChatInterface({
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex gap-3"
           >
-            <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-bold text-white">C</span>
-            </div>
-            <div className="flex-1 message message-assistant">
+            <div className="message-content message-content-assistant">
               <div className="flex items-center gap-2 text-foreground-muted">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Thinking...</span>
@@ -537,23 +529,14 @@ export function ChatInterface({
         </div>
       </div>
 
-      {/* Debug status bar - remove after debugging */}
-      {isStreaming && (
-        <div className="px-4 py-1 bg-accent/20 text-xs text-foreground-muted flex gap-4">
-          <span>Streaming: {isStreaming ? 'yes' : 'no'}</span>
-          <span>Content: {streamingContent.length} chars</span>
-          <span>Tool: {currentToolCall?.name || 'none'}</span>
-        </div>
-      )}
-
       {/* Edit cancel banner */}
       {isEditing && (
-        <div className="flex items-center justify-between px-4 py-2 bg-warning/10 border-t border-warning/30">
+        <div className="flex items-center justify-between px-4 py-2 bg-warning-muted">
           <span className="text-xs text-warning font-medium">Editing message — changes will be discarded</span>
           <button
             type="button"
             onClick={onCancelEdit}
-            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-warning hover:text-warning/80 bg-warning/10 hover:bg-warning/20 rounded transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-warning hover:text-foreground bg-background-hover rounded transition-colors"
           >
             <X className="w-3 h-3" />
             Cancel
@@ -561,8 +544,8 @@ export function ChatInterface({
         </div>
       )}
 
-      {/* Input area */}
-      <div className="p-4 bg-background-secondary">
+      {/* Input area — unified container like Cursor */}
+      <div className="px-3 py-2">
         <form onSubmit={handleSubmit} className="relative">
           {/* Slash command autocomplete dropdown */}
           <AnimatePresence>
@@ -585,7 +568,7 @@ export function ChatInterface({
                       className={clsx(
                         'w-full flex items-center gap-3 px-2 py-1.5 text-sm rounded text-left transition-colors',
                         index === slashIndex
-                          ? 'bg-accent/20 text-accent'
+                          ? 'bg-background-hover text-foreground'
                           : 'hover:bg-background-hover'
                       )}
                     >
@@ -623,7 +606,7 @@ export function ChatInterface({
                       className={clsx(
                         'w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded text-left transition-colors',
                         index === mentionIndex
-                          ? 'bg-accent/20 text-accent'
+                          ? 'bg-background-hover text-foreground'
                           : 'hover:bg-background-hover'
                       )}
                     >
@@ -636,72 +619,74 @@ export function ChatInterface({
             )}
           </AnimatePresence>
 
-          {/* Context bubbles */}
-          {contextItems.length > 0 && (
-            <div className="mb-2">
-              <ContextBubbleList
-                items={contextItems}
-                onRemove={removeContextItem}
+          {/* Unified input container — textarea + selectors in one box */}
+          <div className="bg-background-tertiary border border-border rounded-md focus-within:border-foreground-muted transition-colors">
+            {/* Context bubbles */}
+            {contextItems.length > 0 && (
+              <div className="px-3 pt-2">
+                <ContextBubbleList
+                  items={contextItems}
+                  onRemove={removeContextItem}
+                />
+              </div>
+            )}
+
+            <div className="relative">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder="Message, @ for context, / for commands"
+                disabled={isStreaming}
+                rows={1}
+                className="w-full px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-foreground-muted focus:outline-none resize-none min-h-[40px] max-h-[200px]"
+                style={{
+                  height: 'auto',
+                  minHeight: '40px',
+                }}
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                {isStreaming ? (
+                  <button
+                    type="button"
+                    onClick={onInterrupt}
+                    className="p-1.5 rounded-md text-error hover:bg-background-hover transition-colors"
+                    title="Stop generation"
+                  >
+                    <Square className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!input.trim()}
+                    className={clsx(
+                      'p-1.5 rounded-md transition-colors',
+                      input.trim()
+                        ? 'bg-foreground text-background hover:bg-foreground-secondary'
+                        : 'text-foreground-muted'
+                    )}
+                    title="Send message"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Mode/Model selectors — inside the input container */}
+            <div className="flex items-center gap-1 px-1.5 pb-1.5">
+              <ModeSelector mode={mode} onModeChange={setMode} />
+              <ModelSelector
+                model={model}
+                onModelChange={(m) => {
+                  setModel(m);
+                  onModelChange?.(m);
+                }}
               />
             </div>
-          )}
-
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder={currentModeDefinition?.placeholder || 'Message Claude...'}
-            disabled={isStreaming}
-            rows={1}
-            className="input pr-24 resize-none min-h-[52px] max-h-[200px]"
-            style={{
-              height: 'auto',
-              minHeight: '52px',
-            }}
-          />
-          <div className="absolute right-2 bottom-2 flex items-center gap-2">
-            {isStreaming ? (
-              <button
-                type="button"
-                onClick={onInterrupt}
-                className="btn-icon bg-error/20 hover:bg-error/30 text-error"
-                title="Stop generation"
-              >
-                <Square className="w-4 h-4" />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!input.trim()}
-                className={clsx(
-                  'btn-icon transition-all',
-                  input.trim()
-                    ? 'bg-accent hover:bg-accent-hover text-white'
-                    : 'text-foreground-muted'
-                )}
-                title="Send message"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            )}
           </div>
         </form>
-        <div className="flex items-center justify-between mt-2">
-          <div className="flex items-center gap-1">
-            <ModeSelector mode={mode} onModeChange={setMode} />
-            <ModelSelector
-              model={model}
-              onModelChange={(m) => {
-                setModel(m);
-                onModelChange?.(m);
-              }}
-            />
-          </div>
-          <p className="text-xs text-foreground-muted">
-            Enter to send, Shift+Enter for new line
-          </p>
-        </div>
       </div>
     </div>
   );
@@ -733,7 +718,7 @@ function FileContextPills({ files }: { files: Array<{ path: string; name: string
       {shown.map((file) => (
         <span
           key={file.path}
-          className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-accent/10 border border-accent/20 rounded text-[11px] text-accent"
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-background-hover border border-border rounded text-[11px] text-foreground-secondary"
           title={file.path}
         >
           <File className="w-3 h-3" />
@@ -744,7 +729,7 @@ function FileContextPills({ files }: { files: Array<{ path: string; name: string
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="inline-flex items-center px-1.5 py-0.5 text-[11px] text-foreground-muted hover:text-accent transition-colors"
+          className="inline-flex items-center px-1.5 py-0.5 text-[11px] text-foreground-muted hover:text-foreground transition-colors"
         >
           +{remaining} more
         </button>
@@ -776,7 +761,7 @@ function MessageBubble({
         exit={{ opacity: 0 }}
         className="flex justify-center py-1"
       >
-        <div className="text-xs text-foreground-muted italic px-4 py-1.5 bg-background-hover/50 rounded-full">
+        <div className="text-xs text-foreground-muted italic px-4 py-1.5 bg-background-tertiary rounded-full">
           {message.content}
         </div>
       </motion.div>
@@ -793,14 +778,14 @@ function MessageBubble({
     <>
       {/* Checkpoint divider */}
       {showCheckpointDivider && (
-        <div className="flex items-center gap-3 py-2 px-4">
+        <div className="flex items-center gap-3 py-2">
           <div className="flex-1 h-px bg-border" />
           <button
             onClick={(e) => {
               e.stopPropagation();
               onRestore?.();
             }}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-foreground-muted hover:text-accent bg-background-secondary border border-border rounded-full transition-colors hover:border-accent/50"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-foreground-muted hover:text-foreground bg-background-secondary border border-border rounded-full transition-colors hover:border-foreground-muted"
             title="Restore to this checkpoint"
           >
             <RotateCcw className="w-3 h-3" />
@@ -810,70 +795,54 @@ function MessageBubble({
         </div>
       )}
 
-      {/* Message */}
+      {/* Message — flat, no avatars, no bubbles */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
-        className={clsx('flex gap-3 group', isUser && 'flex-row-reverse')}
+        className="group relative"
       >
-        {/* Avatar */}
-        <div
-          className={clsx(
-            'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0',
-            isUser ? 'bg-foreground-muted' : 'bg-accent'
-          )}
-        >
-          <span className="text-xs font-bold text-white">
-            {isUser ? 'U' : 'C'}
-          </span>
-        </div>
-
-        {/* Content */}
-        <div className={clsx('flex-1 min-w-0', isUser && 'flex justify-end')}>
-          <div className={clsx('message relative', isUser ? 'message-user' : 'message-assistant')}>
-            {(() => {
-              // Use context items if available, otherwise parse <file> tags for legacy messages
-              if (isUser && message.context && message.context.length > 0) {
-                const textContent = parseFileContext(message.content).textContent;
-                return (
-                  <>
-                    <div className="mb-2">
-                      <ContextBubbleList items={message.context} compact />
-                    </div>
-                    <MarkdownContent content={textContent} />
-                  </>
-                );
-              }
-              const { files, textContent } = isUser ? parseFileContext(message.content) : { files: [], textContent: message.content };
+        <div className={clsx('message-content', isUser ? 'message-content-user' : 'message-content-assistant')}>
+          {(() => {
+            if (isUser && message.context && message.context.length > 0) {
+              const textContent = parseFileContext(message.content).textContent;
               return (
                 <>
-                  {files.length > 0 && <FileContextPills files={files} />}
+                  <div className="mb-2">
+                    <ContextBubbleList items={message.context} compact />
+                  </div>
                   <MarkdownContent content={textContent} />
                 </>
               );
-            })()}
+            }
+            const { files, textContent } = isUser ? parseFileContext(message.content) : { files: [], textContent: message.content };
+            return (
+              <>
+                {files.length > 0 && <FileContextPills files={files} />}
+                <MarkdownContent content={textContent} />
+              </>
+            );
+          })()}
 
-            {/* Edit button for user messages (visible on hover) */}
-            {isUser && onEdit && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEdit();
-                }}
-                className="absolute -top-2 -left-2 btn-icon p-1.5 bg-background-secondary border border-border shadow-lg hover:bg-background-hover opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Edit message"
-              >
-                <Pencil className="w-3.5 h-3.5 text-foreground-muted" />
-              </button>
-            )}
-          </div>
-
-          {/* Tool calls (grouped) */}
-          {message.toolCalls && message.toolCalls.length > 0 && (
-            <ToolCallGroup toolCalls={message.toolCalls} />
+          {/* Edit button for user messages (visible on hover) */}
+          {isUser && onEdit && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit();
+              }}
+              className="absolute top-0 right-0 btn-icon p-1.5 bg-background-secondary border border-border shadow-lg hover:bg-background-hover opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Edit message"
+            >
+              <Pencil className="w-3.5 h-3.5 text-foreground-muted" />
+            </button>
           )}
         </div>
+
+        {/* Tool calls (grouped) */}
+        {message.toolCalls && message.toolCalls.length > 0 && (
+          <ToolCallGroup toolCalls={message.toolCalls} />
+        )}
       </motion.div>
     </>
   );
@@ -926,7 +895,7 @@ function getToolIcon(name: string) {
 function getStatusIcon(status: ToolCall['status']) {
   switch (status) {
     case 'running':
-      return <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />;
+      return <Loader2 className="w-3.5 h-3.5 animate-spin text-foreground-secondary" />;
     case 'completed':
       return <CheckCircle2 className="w-3.5 h-3.5 text-success" />;
     case 'error':
@@ -952,8 +921,8 @@ function ToolCallGroup({ toolCalls }: { toolCalls: ToolCall[] }) {
         className={clsx(
           'w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors',
           'border border-border hover:bg-background-hover',
-          hasRunning && 'border-accent/30 bg-accent/5',
-          hasError && 'border-error/30 bg-error/5'
+          hasRunning && 'border-foreground-muted bg-background-tertiary',
+          hasError && 'border-error bg-error-muted'
         )}
       >
         <ChevronRight
@@ -969,7 +938,7 @@ function ToolCallGroup({ toolCalls }: { toolCalls: ToolCall[] }) {
             : `${completedCount} tool call${completedCount !== 1 ? 's' : ''}`}
         </span>
         <span className="flex-1" />
-        {hasRunning && <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />}
+        {hasRunning && <Loader2 className="w-3.5 h-3.5 animate-spin text-foreground-secondary" />}
         {!hasRunning && hasError && <XCircle className="w-3.5 h-3.5 text-error" />}
         {!hasRunning && !hasError && completedCount === toolCalls.length && (
           <CheckCircle2 className="w-3.5 h-3.5 text-success" />
@@ -1009,7 +978,7 @@ function ToolCallIndicator({ toolCall }: { toolCall: ToolCall }) {
         className={clsx(
           'w-full flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors',
           'hover:bg-background-hover',
-          toolCall.status === 'running' && 'text-accent',
+          toolCall.status === 'running' && 'text-foreground-secondary',
           toolCall.status === 'error' && 'text-error'
         )}
       >
@@ -1107,7 +1076,7 @@ function MarkdownContent({ content }: { content: string }) {
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-accent hover:underline"
+              className="text-foreground-secondary underline hover:text-foreground"
             >
               {children}
             </a>

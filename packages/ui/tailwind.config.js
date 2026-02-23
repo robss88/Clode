@@ -11,22 +11,21 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Modern dark theme inspired by Cursor
         background: {
-          DEFAULT: '#0d0d0d',
-          secondary: '#141414',
-          tertiary: '#1a1a1a',
-          hover: '#242424',
-          active: '#2a2a2a',
+          DEFAULT: '#141414',
+          secondary: '#1a1a1a',
+          tertiary: '#2a2a2a',
+          hover: '#ffffff0f',
+          active: '#ffffff1a',
         },
         foreground: {
-          DEFAULT: '#fafafa',
+          DEFAULT: '#e4e4e4',
           secondary: '#a1a1a1',
-          muted: '#666666',
+          muted: '#555555',
         },
         border: {
-          DEFAULT: '#2a2a2a',
-          secondary: '#333333',
+          DEFAULT: '#ffffff0f',
+          secondary: '#ffffff1a',
         },
         accent: {
           DEFAULT: '#7c3aed',
@@ -45,7 +44,6 @@ module.exports = {
           DEFAULT: '#ef4444',
           muted: '#ef444420',
         },
-        // Diff colors
         diff: {
           add: '#22c55e',
           addBg: '#22c55e15',
@@ -54,8 +52,8 @@ module.exports = {
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+        sans: ['-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+        mono: ['Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
       fontSize: {
         '2xs': '0.65rem',
@@ -92,10 +90,6 @@ module.exports = {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.7' },
         },
-      },
-      boxShadow: {
-        'glow': '0 0 20px rgba(124, 58, 237, 0.3)',
-        'glow-sm': '0 0 10px rgba(124, 58, 237, 0.2)',
       },
     },
   },

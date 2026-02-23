@@ -66,7 +66,7 @@ export function ModelSelector({ model, onModelChange }: ModelSelectorProps) {
                   className={clsx(
                     'w-full flex items-center gap-3 px-3 py-2 rounded text-left transition-colors',
                     isActive
-                      ? 'bg-accent/20 text-accent'
+                      ? 'bg-background-hover text-foreground'
                       : 'hover:bg-background-hover text-foreground'
                   )}
                 >
@@ -89,7 +89,7 @@ export function ModelSelector({ model, onModelChange }: ModelSelectorProps) {
         className={clsx(
           'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors',
           'hover:bg-background-hover',
-          isOpen ? 'bg-background-hover text-accent' : 'text-foreground-muted'
+          isOpen ? 'bg-background-hover text-foreground' : 'text-foreground-muted'
         )}
       >
         <Cpu className="w-3.5 h-3.5" />

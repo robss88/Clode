@@ -91,8 +91,8 @@ module.exports = {
         },
       },
       boxShadow: {
-        'glow': '0 0 20px rgba(124, 58, 237, 0.3)',
-        'glow-sm': '0 0 10px rgba(124, 58, 237, 0.2)',
+        'glow': 'none',
+        'glow-sm': 'none',
       },
     },
   },

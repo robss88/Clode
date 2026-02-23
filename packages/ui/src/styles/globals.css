@@ -32,7 +32,7 @@
 
   /* Selection */
   ::selection {
-    @apply bg-accent/30;
+    @apply bg-accent-muted;
   }
 }
 
@@ -56,7 +56,7 @@
   }
 
   .btn-primary {
-    @apply bg-accent text-white hover:bg-accent-hover active:scale-[0.98];
+    @apply bg-foreground text-background hover:bg-foreground-secondary;
   }
 
   .btn-secondary {
@@ -73,12 +73,12 @@
 
   /* Input styles */
   .input {
-    @apply w-full px-4 py-2.5 bg-background-tertiary border border-border rounded-lg text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all;
+    @apply w-full px-3 py-2 bg-background-tertiary border border-border rounded-md text-sm text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-foreground-muted transition-all;
   }
 
   /* Sticky header for checkpoint groups */
   .sticky-header {
-    @apply sticky top-0 z-10 px-3 py-2 text-xs font-semibold text-foreground-muted uppercase tracking-wider bg-background-secondary/95 backdrop-blur-sm border-b border-border;
+    @apply sticky top-0 z-10 px-3 py-2 text-xs font-semibold text-foreground-muted uppercase tracking-wider bg-background-secondary border-b border-border;
   }
 
   /* Checkpoint item */
@@ -87,7 +87,7 @@
   }
 
   .checkpoint-item.active {
-    @apply bg-accent-muted border border-accent/30;
+    @apply bg-background-hover border border-foreground-muted;
   }
 
   .checkpoint-indicator {
@@ -95,24 +95,24 @@
   }
 
   .checkpoint-indicator.current {
-    @apply bg-accent shadow-glow-sm;
+    @apply bg-foreground;
   }
 
   .checkpoint-indicator.default {
     @apply bg-foreground-muted;
   }
 
-  /* Message styles */
-  .message {
-    @apply px-4 py-3 rounded-xl max-w-[85%];
+  /* Message styles — flat, no bubbles */
+  .message-content {
+    @apply break-words overflow-hidden;
   }
 
-  .message-user {
-    @apply bg-accent text-white ml-auto;
+  .message-content-user {
+    @apply text-foreground;
   }
 
-  .message-assistant {
-    @apply bg-background-tertiary text-foreground;
+  .message-content-assistant {
+    @apply text-foreground;
   }
 
   /* Code block */
@@ -121,28 +121,16 @@
   }
 
   .code-block-header {
-    @apply flex items-center justify-between px-4 py-2 bg-background-secondary border-b border-border;
+    @apply flex items-center justify-between px-3 py-1.5 bg-background-secondary border-b border-border;
   }
 
   .code-block-content {
-    @apply p-4 overflow-x-auto;
+    @apply p-3 overflow-x-auto;
   }
 
   /* Tool call indicator */
   .tool-call {
     @apply flex items-center gap-2 px-3 py-2 bg-background-tertiary rounded-lg border border-border text-sm;
-  }
-
-  .tool-call-running {
-    @apply border-accent/50 bg-accent-muted;
-  }
-
-  .tool-call-completed {
-    @apply border-success/50 bg-success-muted;
-  }
-
-  .tool-call-error {
-    @apply border-error/50 bg-error-muted;
   }
 
   /* File tree */
@@ -156,11 +144,11 @@
 
   /* Resizable panel handle */
   .resize-handle {
-    @apply w-1 bg-transparent hover:bg-accent/50 cursor-col-resize transition-colors;
+    @apply w-1 bg-transparent hover:bg-foreground-muted cursor-col-resize transition-colors;
   }
 
   .resize-handle-horizontal {
-    @apply h-1 w-full bg-transparent hover:bg-accent/50 cursor-row-resize transition-colors;
+    @apply h-1 w-full bg-transparent hover:bg-foreground-muted cursor-row-resize transition-colors;
   }
 
   /* Terminal styles */

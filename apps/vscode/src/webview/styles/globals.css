@@ -61,7 +61,7 @@
   }
 
   .btn-primary {
-    @apply bg-accent text-white hover:bg-accent-hover;
+    @apply bg-foreground text-background hover:bg-foreground-secondary;
   }
 
   .btn-secondary {
@@ -78,20 +78,20 @@
 
   /* Input styles */
   .input {
-    @apply w-full px-4 py-2.5 bg-background-tertiary border border-border rounded-lg text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-accent transition-all;
+    @apply w-full px-3 py-2 bg-background-tertiary border border-border rounded-md text-sm text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-foreground-muted transition-all;
   }
 
-  /* Message styles */
-  .message {
-    @apply px-4 py-3 rounded-xl max-w-[85%] break-words overflow-hidden;
+  /* Message styles — flat, no bubbles */
+  .message-content {
+    @apply break-words overflow-hidden;
   }
 
-  .message-user {
-    @apply bg-accent text-white ml-auto;
+  .message-content-user {
+    @apply text-foreground;
   }
 
-  .message-assistant {
-    @apply bg-background-tertiary text-foreground;
+  .message-content-assistant {
+    @apply text-foreground;
   }
 
   /* Code block */
@@ -100,28 +100,16 @@
   }
 
   .code-block-header {
-    @apply flex items-center justify-between px-4 py-2 bg-background-secondary border-b border-border;
+    @apply flex items-center justify-between px-3 py-1.5 bg-background-secondary border-b border-border;
   }
 
   .code-block-content {
-    @apply p-4 overflow-x-auto;
+    @apply p-3 overflow-x-auto;
   }
 
   /* Tool call indicator */
   .tool-call {
     @apply flex items-center gap-2 px-3 py-2 bg-background-tertiary rounded-lg border border-border text-sm;
-  }
-
-  .tool-call-running {
-    @apply border-accent bg-accent-muted;
-  }
-
-  .tool-call-completed {
-    @apply border-success bg-success-muted;
-  }
-
-  .tool-call-error {
-    @apply border-error bg-error-muted;
   }
 
   /* Sticky header for checkpoint groups */
@@ -135,7 +123,7 @@
   }
 
   .checkpoint-item.active {
-    @apply bg-accent-muted border border-accent;
+    @apply bg-background-hover border border-foreground-muted;
   }
 
   .checkpoint-indicator {
@@ -143,7 +131,7 @@
   }
 
   .checkpoint-indicator.current {
-    @apply bg-accent;
+    @apply bg-foreground;
   }
 
   .checkpoint-indicator.default {
