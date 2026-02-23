@@ -1,7 +1,6 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   ChatInterface,
-  GitPanel,
   useAgentStore,
   useUIStore,
   useChatSessionStore,
@@ -9,11 +8,9 @@ import {
   getModeFlags,
   configureStorage,
 } from '@claude-agent/ui';
-import type { Message, FileNode, GitBranch, GitCommit, GitStatus, ContextItem } from '@claude-agent/core';
-import { MessageSquare, GitCommitHorizontal } from 'lucide-react';
-import clsx from 'clsx';
+import type { Message, FileNode, ContextItem } from '@claude-agent/core';
 import { useBridge } from './bridge/context';
-import { ChatSessionDropdown } from './ChatSessionDropdown';
+import { ChatTabs } from './ChatTabs';
 import { vscodeStorage } from './bridge/vscode-bridge';
 
 // Configure Zustand persistence to use VS Code webview state (survives reloads)
@@ -25,11 +22,6 @@ export default function App() {
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [editSnapshot, setEditSnapshot] = useState<{ messages: Message[]; headHash: string } | null>(null);
   const [isReady, setIsReady] = useState(false);
-  const [commits, setCommits] = useState<GitCommit[]>([]);
-  const [branches, setBranches] = useState<GitBranch[]>([]);
-  const [currentHead, setCurrentHead] = useState<string | null>(null);
-  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
-  const [activeTab, setActiveTab] = useState<'chat' | 'git'>('chat');
 
   const {
     messages,
@@ -41,38 +33,6 @@ export default function App() {
     clearStreamingContent,
     setCurrentToolCall,
   } = useAgentStore();
-
-  // Refresh git state
-  const refreshCommits = useCallback(async () => {
-    try {
-      const commitList = await bridge.listGitCommits();
-      setCommits(commitList);
-      const head = await bridge.getCurrentGitHead();
-      setCurrentHead(head || null);
-    } catch (err) {
-      console.error('[Webview] refreshCommits failed:', err);
-    }
-  }, [bridge]);
-
-  const refreshBranches = useCallback(async () => {
-    try {
-      const branch = await bridge.getCurrentGitBranch();
-      setCurrentBranch(branch || null);
-      const branchList = await bridge.listGitBranches();
-      setBranches(branchList);
-    } catch (err) {
-      console.error('[Webview] refreshBranches failed:', err);
-    }
-  }, [bridge]);
-
-  const refreshGitStatus = useCallback(async () => {
-    try {
-      const status = await bridge.getGitStatus();
-      setGitStatus(status);
-    } catch (err) {
-      console.error('[Webview] refreshGitStatus failed:', err);
-    }
-  }, [bridge]);
 
   // Initialize: wait for extension host to be ready via init:state event
   useEffect(() => {
@@ -105,16 +65,13 @@ export default function App() {
         setFileTree(tree);
 
         setIsReady(true);
-
-        // Fetch initial git state (fire-and-forget, don't block init)
-        refreshCommits();
       } catch (err) {
         console.error('[Webview] Init failed:', err);
         setIsReady(true); // Show UI even on error
       }
     });
     return cleanup;
-  }, [bridge, refreshCommits]);
+  }, [bridge]);
 
   // Set up event listeners
   useEffect(() => {
@@ -186,24 +143,12 @@ export default function App() {
       }
     });
 
-    const cleanupCheckpoint = bridge.onCheckpointCreated(() => {
-      refreshCommits();
-      refreshBranches();
-    });
-
-    const cleanupCheckpointRestored = bridge.onCheckpointRestored(() => {
-      refreshCommits();
-      refreshBranches();
-    });
-
     return () => {
       cleanupChunk();
       cleanupMessage();
       cleanupError();
-      cleanupCheckpoint();
-      cleanupCheckpointRestored();
     };
-  }, [bridge, refreshCommits, refreshBranches]);
+  }, [bridge]);
 
   // Auto-save messages to active chat session
   useEffect(() => {
@@ -417,39 +362,6 @@ export default function App() {
     setEditSnapshot(null);
   }, [bridge, editSnapshot]);
 
-  // Git tab handlers
-  const handleCheckoutCommit = useCallback(async (commitHash: string) => {
-    await bridge.checkoutGitCommit(commitHash);
-    await refreshCommits();
-  }, [bridge, refreshCommits]);
-
-  const handlePreviewCommit = useCallback(async (_commitHash: string) => {
-    // No-op for MVP — could open a VS Code diff editor in the future
-  }, []);
-
-  const handleSwitchBranch = useCallback(async (branchName: string) => {
-    await bridge.switchGitBranch(branchName);
-    await refreshBranches();
-    await refreshCommits();
-  }, [bridge, refreshBranches, refreshCommits]);
-
-  const handleCreateBranch = useCallback(async (name: string) => {
-    await bridge.createGitBranch(name);
-    await refreshBranches();
-    await refreshCommits();
-  }, [bridge, refreshBranches, refreshCommits]);
-
-  const handlePushToRemote = useCallback(async () => {
-    await bridge.pushToRemote();
-    await refreshGitStatus();
-  }, [bridge, refreshGitStatus]);
-
-  const handleCommitAll = useCallback(async (message: string) => {
-    await bridge.gitCommitAll(message);
-    await refreshCommits();
-    await refreshGitStatus();
-  }, [bridge, refreshCommits, refreshGitStatus]);
-
   // New chat on current branch
   const handleNewChat = useCallback(() => {
     // Save current messages to active chat
@@ -483,14 +395,29 @@ export default function App() {
     }
   }, [bridge]);
 
-  // Auto-refresh when switching to Git tab
-  useEffect(() => {
-    if (activeTab === 'git') {
-      refreshCommits();
-      refreshBranches();
-      refreshGitStatus();
+  // Delete a chat tab
+  const handleDeleteChat = useCallback((chatId: string) => {
+    const store = useChatSessionStore.getState();
+    const branch = currentBranch || 'main';
+    const branchChats = store.getChatsForBranch(branch);
+
+    if (branchChats.length <= 1) {
+      const newChat = store.createChat(branch, 'Chat 1');
+      useAgentStore.getState().clearMessages();
+      bridge.switchChatSession(newChat.id);
+      store.deleteChat(chatId);
+    } else {
+      if (store.activeChatId === chatId) {
+        const otherChat = branchChats.find((c) => c.id !== chatId);
+        if (otherChat) {
+          useAgentStore.getState().setMessages(otherChat.messages);
+          store.setActiveChatId(otherChat.id);
+          bridge.switchChatSession(otherChat.id);
+        }
+      }
+      store.deleteChat(chatId);
     }
-  }, [activeTab, refreshCommits, refreshBranches, refreshGitStatus]);
+  }, [bridge, currentBranch]);
 
   if (!isReady) {
     return (
@@ -505,79 +432,29 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
-      {/* Tab Switcher */}
-      <div className="flex border-b border-border flex-shrink-0">
-        <button
-          onClick={() => setActiveTab('chat')}
-          className={clsx(
-            'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors',
-            activeTab === 'chat'
-              ? 'text-accent border-b-2 border-accent'
-              : 'text-foreground-muted hover:text-foreground'
-          )}
-        >
-          <MessageSquare className="w-3.5 h-3.5" />
-          Chat
-        </button>
-        <button
-          onClick={() => setActiveTab('git')}
-          className={clsx(
-            'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors',
-            activeTab === 'git'
-              ? 'text-accent border-b-2 border-accent'
-              : 'text-foreground-muted hover:text-foreground'
-          )}
-        >
-          <GitCommitHorizontal className="w-3.5 h-3.5" />
-          Git
-          {commits.length > 0 && (
-            <span className="text-[10px] bg-surface-hover rounded-full px-1.5">{commits.length}</span>
-          )}
-        </button>
-      </div>
-
-      {/* Tab Content */}
+      <ChatTabs
+        currentBranch={currentBranch}
+        onSwitchChat={handleSwitchChat}
+        onNewChat={handleNewChat}
+        onDeleteChat={handleDeleteChat}
+      />
       <div className="flex-1 overflow-hidden">
-        {activeTab === 'chat' ? (
-          <div className="flex flex-col h-full overflow-hidden">
-            <ChatSessionDropdown
-              currentBranch={currentBranch}
-              onSwitchChat={handleSwitchChat}
-              onNewChat={handleNewChat}
-            />
-            <ChatInterface
-            messages={messages}
-            isStreaming={isStreaming}
-            streamingContent={streamingContent}
-            currentToolCall={currentToolCall}
-            fileTree={fileTree}
-            isEditing={!!editSnapshot}
-            onSendMessage={handleSendMessage}
-            onInterrupt={handleInterrupt}
-            onRestoreToMessage={handleRestoreToMessage}
-            onEditMessage={handleEditMessage}
-            onCancelEdit={handleCancelEdit}
-            onReadFile={(path) => bridge.readFile(path)}
-            onImplementPlan={handleImplementPlan}
-            onModelChange={(model) => bridge.setModel(model)}
-          />
-          </div>
-        ) : (
-          <GitPanel
-            branches={branches}
-            commits={commits}
-            currentBranch={currentBranch}
-            currentCommitHash={currentHead}
-            gitStatus={gitStatus}
-            onSwitchBranch={handleSwitchBranch}
-            onCreateBranch={handleCreateBranch}
-            onCheckoutCommit={handleCheckoutCommit}
-            onPreviewCommit={handlePreviewCommit}
-            onPushToRemote={handlePushToRemote}
-            onCommitAll={handleCommitAll}
-            onRefreshStatus={refreshGitStatus}
-          />
-        )}
+        <ChatInterface
+          messages={messages}
+          isStreaming={isStreaming}
+          streamingContent={streamingContent}
+          currentToolCall={currentToolCall}
+          fileTree={fileTree}
+          isEditing={!!editSnapshot}
+          onSendMessage={handleSendMessage}
+          onInterrupt={handleInterrupt}
+          onRestoreToMessage={handleRestoreToMessage}
+          onEditMessage={handleEditMessage}
+          onCancelEdit={handleCancelEdit}
+          onReadFile={(path) => bridge.readFile(path)}
+          onImplementPlan={handleImplementPlan}
+          onModelChange={(model) => bridge.setModel(model)}
+        />
       </div>
     </div>
   );

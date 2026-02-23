@@ -104,6 +104,7 @@ export function ChatInterface({
   const mentionListRef = useRef<HTMLDivElement>(null);
   const slashListRef = useRef<HTMLDivElement>(null);
   const dragCountRef = useRef(0);
+  const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Mode selector
   const mode = useUIStore((state) => state.mode);
@@ -131,6 +132,21 @@ export function ChatInterface({
       }, 50);
     }
   }, [draftInput, setDraftInput]);
+
+  // Find the latest user message for the sticky header
+  const lastUserMessage = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i];
+    }
+    return null;
+  }, [messages]);
+
+  const scrollToMessage = useCallback((messageId: string) => {
+    const el = messageRefs.current.get(messageId);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
 
   // Flatten file tree for search
   const allFiles = useMemo(() => {
@@ -425,10 +441,25 @@ export function ChatInterface({
       )}
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+      <div className="flex-1 overflow-y-auto text-[13px]">
+        {/* Sticky latest user prompt */}
+        {lastUserMessage && (
+          <div
+            className="sticky top-0 z-10 bg-background/90 backdrop-blur-sm px-4 py-2 border-b border-border cursor-pointer hover:bg-background-hover transition-colors"
+            onClick={() => scrollToMessage(lastUserMessage.id)}
+          >
+            <p className="text-xs text-foreground-secondary truncate">
+              {parseFileContext(lastUserMessage.content).textContent}
+            </p>
+          </div>
+        )}
+        <div className="px-4 py-6 space-y-4">
         <AnimatePresence initial={false}>
           {messages.map((message, index) => (
-            <React.Fragment key={message.id}>
+            <div
+              key={message.id}
+              ref={(el) => { if (el) messageRefs.current.set(message.id, el); }}
+            >
               <MessageBubble
                 message={message}
                 previousMessage={index > 0 ? messages[index - 1] : undefined}
@@ -455,7 +486,7 @@ export function ChatInterface({
                     </button>
                   </motion.div>
                 )}
-            </React.Fragment>
+            </div>
           ))}
         </AnimatePresence>
 
@@ -503,6 +534,7 @@ export function ChatInterface({
         )}
 
         <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* Debug status bar - remove after debugging */}
@@ -530,7 +562,7 @@ export function ChatInterface({
       )}
 
       {/* Input area */}
-      <div className="p-4 border-t border-border bg-background-secondary">
+      <div className="p-4 bg-background-secondary">
         <form onSubmit={handleSubmit} className="relative">
           {/* Slash command autocomplete dropdown */}
           <AnimatePresence>

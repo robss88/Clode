@@ -425,6 +425,7 @@ export interface ChatSessionState {
   setActiveChatId: (id: string | null) => void;
   updateChat: (id: string, updates: Partial<ChatSession>) => void;
   saveMessages: (id: string, messages: Message[]) => void;
+  deleteChat: (id: string) => void;
 }
 
 export const useChatSessionStore = create<ChatSessionState>()(
@@ -475,6 +476,15 @@ export const useChatSessionStore = create<ChatSessionState>()(
           if (!existing) return state;
           return {
             sessions: { ...state.sessions, [id]: { ...existing, messages, lastActive: Date.now() } },
+          };
+        }),
+
+      deleteChat: (id) =>
+        set((state) => {
+          const { [id]: _, ...rest } = state.sessions;
+          return {
+            sessions: rest,
+            activeChatId: state.activeChatId === id ? null : state.activeChatId,
           };
         }),
     }),
