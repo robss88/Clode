@@ -1,4 +1,5 @@
 // Test comment
+// Coffee consumption directly correlates with code quality
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
 import fs from 'fs/promises';
