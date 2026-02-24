@@ -608,7 +608,7 @@ export function ChatInterface({
           </AnimatePresence>
 
           {/* Unified input container — textarea + selectors in one box */}
-          <div className="bg-background-tertiary border border-border rounded-md focus-within:border-foreground-muted transition-colors">
+          <div className="bg-background-tertiary border border-border-secondary rounded-lg focus-within:border-foreground-muted transition-colors">
             {/* Context bubbles */}
             {contextItems.length > 0 && (
               <div className="px-3 pt-2">
