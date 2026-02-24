@@ -774,7 +774,7 @@ function MessageBubble({
         <div className={clsx(
           'message-content',
           isUser
-            ? 'message-content-user font-medium text-foreground bg-background-hover border border-border-secondary rounded-lg px-3 py-2'
+            ? 'message-content-user font-medium text-foreground bg-background-tertiary border border-border-secondary rounded-lg px-3 py-2'
             : 'message-content-assistant'
         )}>
           {(() => {
