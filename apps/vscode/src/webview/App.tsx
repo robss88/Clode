@@ -41,11 +41,15 @@ export default function App() {
         const branchName = state.branch || 'main';
         setCurrentBranch(branchName);
 
-        // Find or create a chat session for the current branch
+        // Restore last active chat, or pick first for branch, or create new
         const store = useChatSessionStore.getState();
+        const persistedId = store.activeChatId;
         const branchChats = store.getChatsForBranch(branchName);
         let chat;
-        if (branchChats.length > 0) {
+        if (persistedId && store.sessions[persistedId]) {
+          // Restore the last active chat from the persisted store
+          chat = store.sessions[persistedId];
+        } else if (branchChats.length > 0) {
           chat = branchChats[0];
         } else {
           chat = store.createChat(branchName, 'Chat 1');
