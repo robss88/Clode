@@ -17,9 +17,10 @@ const MODELS: ModelOption[] = [
 interface ModelSelectorProps {
   model: string;
   onModelChange: (model: string) => void;
+  dropdownDirection?: 'up' | 'down';
 }
 
-export function ModelSelector({ model, onModelChange }: ModelSelectorProps) {
+export function ModelSelector({ model, onModelChange, dropdownDirection = 'up' }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -51,7 +52,10 @@ export function ModelSelector({ model, onModelChange }: ModelSelectorProps) {
     <div ref={ref} className="relative">
       {/* Dropdown (opens upward) */}
       {isOpen && (
-        <div className="absolute bottom-full left-0 mb-1 w-52 bg-background-tertiary border border-border-secondary rounded-lg shadow-xl z-30 overflow-hidden">
+        <div className={clsx(
+          'absolute left-0 w-52 bg-background-tertiary border border-border-secondary rounded-lg shadow-xl z-30 overflow-hidden',
+          dropdownDirection === 'down' ? 'top-full mt-1' : 'bottom-full mb-1'
+        )}>
           <div className="p-1">
             {MODELS.map((m) => {
               const isActive = m.id === model;

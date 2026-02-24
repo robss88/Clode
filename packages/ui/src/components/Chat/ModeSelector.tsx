@@ -16,9 +16,10 @@ const MODE_ORDER: AgentMode[] = ['ask', 'plan', 'agent', 'yolo'];
 interface ModeSelectorProps {
   mode: AgentMode;
   onModeChange: (mode: AgentMode) => void;
+  dropdownDirection?: 'up' | 'down';
 }
 
-export function ModeSelector({ mode, onModeChange }: ModeSelectorProps) {
+export function ModeSelector({ mode, onModeChange, dropdownDirection = 'up' }: ModeSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -51,7 +52,10 @@ export function ModeSelector({ mode, onModeChange }: ModeSelectorProps) {
     <div ref={ref} className="relative">
       {/* Dropdown (opens upward) */}
       {isOpen && (
-        <div className="absolute bottom-full left-0 mb-1 w-64 bg-background-tertiary border border-border-secondary rounded-lg shadow-xl z-30 overflow-hidden">
+        <div className={clsx(
+          'absolute left-0 w-64 bg-background-tertiary border border-border-secondary rounded-lg shadow-xl z-30 overflow-hidden',
+          dropdownDirection === 'down' ? 'top-full mt-1' : 'bottom-full mb-1'
+        )}>
           <div className="p-1">
             {MODE_ORDER.map((modeId) => {
               const def = MODES[modeId];

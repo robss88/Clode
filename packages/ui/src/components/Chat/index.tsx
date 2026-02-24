@@ -499,6 +499,7 @@ export function ChatInterface({
                         hasCheckpoint={hasCheckpoint}
                         onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
                         onEditAndContinue={!isFadedOut && message.role === 'user' && onEditMessageAndContinue ? (newContent: string) => onEditMessageAndContinue(message.id, newContent) : undefined}
+                        onModelChange={onModelChange}
                       />
                       {mode === 'plan' &&
                         !isStreaming &&
@@ -763,6 +764,7 @@ function MessageBubble({
   hasCheckpoint,
   onRestore,
   onEditAndContinue,
+  onModelChange,
 }: {
   message: Message;
   isLastMessage?: boolean;
@@ -770,12 +772,19 @@ function MessageBubble({
   hasCheckpoint?: boolean;
   onRestore?: () => void;
   onEditAndContinue?: (newContent: string) => void;
+  onModelChange?: (model: string) => void;
 }) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
   const isSystem = message.role === 'system';
   const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
+
+  // Access shared mode/model from store so edit input stays in sync with bottom input
+  const mode = useUIStore((state) => state.mode);
+  const setMode = useUIStore((state) => state.setMode);
+  const model = useUIStore((state) => state.model);
+  const setModel = useUIStore((state) => state.setModel);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
 
@@ -869,10 +878,19 @@ function MessageBubble({
               style={{ height: '40px' }}
             />
             <div className="flex items-center px-1.5 pb-1.5">
+              <ModeSelector mode={mode} onModeChange={setMode} dropdownDirection="down" />
+              <ModelSelector
+                model={model}
+                onModelChange={(m) => {
+                  setModel(m);
+                  onModelChange?.(m);
+                }}
+                dropdownDirection="down"
+              />
               <button
                 type="button"
                 onClick={() => { setIsInlineEditing(false); setShowConfirmDialog(false); }}
-                className="px-2 py-1 text-xs text-foreground-muted hover:text-foreground transition-colors"
+                className="px-2 py-1 text-xs text-foreground-muted hover:text-foreground transition-colors ml-1"
               >
                 Cancel
               </button>
