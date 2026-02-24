@@ -41,6 +41,7 @@ interface ChatInterfaceProps {
   currentToolCall?: ToolCall | null;
   fileTree?: FileNode | null;
   isEditing?: boolean;
+  restoredAtMessageId?: string | null;
   onSendMessage: (content: string, context?: ContextItem[]) => void;
   onInterrupt: () => void;
   onRestoreToMessage?: (messageId: string) => void;
@@ -90,6 +91,7 @@ export function ChatInterface({
   onReadFile,
   onImplementPlan,
   onModelChange,
+  restoredAtMessageId,
 }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
   const [showMentions, setShowMentions] = useState(false);
@@ -447,24 +449,30 @@ export function ChatInterface({
       <div className="flex-1 overflow-y-auto text-[13px]">
         <div className="py-4 space-y-3">
         <AnimatePresence initial={false}>
-          {messages.map((message, index) => (
+          {messages.map((message, index) => {
+            // Determine if this message is after a restore point (should be faded)
+            const restoredIndex = restoredAtMessageId
+              ? messages.findIndex((m) => m.id === restoredAtMessageId)
+              : -1;
+            const isFadedOut = restoredIndex >= 0 && index > restoredIndex;
+
+            return (
             <div
               key={message.id}
               ref={(el) => { if (el) messageRefs.current.set(message.id, el); }}
-              className="px-4"
+              className={clsx(
+                'px-4',
+                message.role === 'user' && 'sticky top-0 z-10 bg-background py-3',
+                isFadedOut && 'opacity-40 pointer-events-none'
+              )}
             >
               <MessageBubble
                 message={message}
                 previousMessage={index > 0 ? messages[index - 1] : undefined}
                 isLastMessage={index === messages.length - 1}
                 onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
-                onEditAndRevert={message.role === 'user' && onEditMessage ? (newContent: string) => {
-                  // Set draft input to the edited content, then trigger the revert-based edit flow
-                  onEditMessage(message.id);
-                } : undefined}
-                onEditAndContinue={message.role === 'user' && onEditMessageAndContinue ? (newContent: string) => {
-                  onEditMessageAndContinue(message.id, newContent);
-                } : undefined}
+                onEditAndRevert={message.role === 'user' && onEditMessage ? () => onEditMessage(message.id) : undefined}
+                onEditAndContinue={message.role === 'user' && onEditMessageAndContinue ? (newContent: string) => onEditMessageAndContinue(message.id, newContent) : undefined}
               />
               {/* Implement Plan button — shown on the last assistant message when in plan mode */}
               {mode === 'plan' &&
@@ -487,7 +495,8 @@ export function ChatInterface({
                   </motion.div>
                 )}
             </div>
-          ))}
+          );
+          })}
         </AnimatePresence>
 
         {/* Streaming content or tool activity */}
@@ -557,7 +566,7 @@ export function ChatInterface({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
-                className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto bg-background-tertiary border border-border-secondary rounded-lg shadow-xl z-20"
+                className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto bg-background-secondary border border-border rounded-lg shadow-xl z-20"
               >
                 <div className="p-1">
                   <div className="px-2 py-1 text-xs text-foreground-muted">Commands</div>
@@ -570,7 +579,7 @@ export function ChatInterface({
                       className={clsx(
                         'w-full flex items-center gap-3 px-2 py-1.5 text-sm rounded text-left transition-colors',
                         index === slashIndex
-                          ? 'bg-background-active text-foreground'
+                          ? 'bg-background-hover text-foreground'
                           : 'hover:bg-background-hover'
                       )}
                     >
@@ -594,7 +603,7 @@ export function ChatInterface({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
-                className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto bg-background-tertiary border border-border-secondary rounded-lg shadow-xl z-20"
+                className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto bg-background-secondary border border-border rounded-lg shadow-xl z-20"
               >
                 <div className="p-1">
                   <div className="px-2 py-1 text-xs text-foreground-muted">
@@ -608,7 +617,7 @@ export function ChatInterface({
                       className={clsx(
                         'w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded text-left transition-colors',
                         index === mentionIndex
-                          ? 'bg-background-active text-foreground'
+                          ? 'bg-background-hover text-foreground'
                           : 'hover:bg-background-hover'
                       )}
                     >
@@ -746,7 +755,7 @@ function MessageBubble({
   previousMessage?: Message;
   isLastMessage?: boolean;
   onRestore?: () => void;
-  onEditAndRevert?: (newContent: string) => void;
+  onEditAndRevert?: () => void;
   onEditAndContinue?: (newContent: string) => void;
 }) {
   const isUser = message.role === 'user';
@@ -772,7 +781,6 @@ function MessageBubble({
     );
   }
 
-  // Show checkpoint restore when previous assistant has a checkpoint
   const hasCheckpoint =
     isUser &&
     previousMessage?.role === 'assistant' &&
@@ -789,7 +797,6 @@ function MessageBubble({
       if (editRef.current) {
         editRef.current.focus();
         editRef.current.setSelectionRange(textContent.length, textContent.length);
-        // Auto-resize
         editRef.current.style.height = 'auto';
         editRef.current.style.height = `${editRef.current.scrollHeight}px`;
       }
@@ -798,11 +805,9 @@ function MessageBubble({
 
   const handleEditSubmit = () => {
     if (!editContent.trim()) return;
-    // Show confirmation dialog if not the last message
     if (!isLastMessage) {
       setShowConfirmDialog(true);
     } else {
-      // Last message — just continue without revert
       onEditAndContinue?.(editContent);
       setIsInlineEditing(false);
     }
@@ -841,7 +846,7 @@ function MessageBubble({
               onKeyDown={handleEditKeyDown}
               className="w-full px-3 py-2 bg-transparent text-sm text-foreground focus:outline-none resize-none min-h-[40px]"
             />
-            <div className="flex items-center justify-end gap-2 px-3 py-1.5 border-t border-border">
+            <div className="flex items-center justify-end gap-2 px-3 py-1.5">
               <button
                 type="button"
                 onClick={() => { setIsInlineEditing(false); setShowConfirmDialog(false); }}
@@ -892,7 +897,7 @@ function MessageBubble({
                 );
               })()}
 
-              {/* Edit hint on hover for user messages */}
+              {/* Edit hint on hover */}
               {canEdit && (
                 <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Pencil className="w-3 h-3 text-foreground-muted" />
@@ -900,7 +905,7 @@ function MessageBubble({
               )}
             </div>
 
-            {/* Restore checkpoint link — shown below user messages */}
+            {/* Restore checkpoint link */}
             {isUser && hasCheckpoint && onRestore && (
               <div className="mt-1">
                 <button
@@ -957,7 +962,7 @@ function MessageBubble({
               <button
                 type="button"
                 onClick={() => {
-                  onEditAndRevert(editContent);
+                  onEditAndRevert();
                   setShowConfirmDialog(false);
                   setIsInlineEditing(false);
                 }}

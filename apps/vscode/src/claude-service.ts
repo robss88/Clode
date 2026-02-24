@@ -35,7 +35,6 @@ export class ClaudeService {
   private setupEventForwarding() {
     if (this.claudeManager) {
       this.claudeManager.on('chunk', (chunk) => {
-        // Capture Claude CLI session ID for resume support
         if (chunk.type === 'init' && chunk.sessionId && this.currentChatSessionId) {
           this.claudeSessionIds.set(this.currentChatSessionId, chunk.sessionId);
         }
@@ -72,7 +71,6 @@ export class ClaudeService {
       if (chatSessionId) {
         this.currentChatSessionId = chatSessionId;
       }
-      // Restore Claude CLI session ID for --resume support
       if (claudeSessionId) {
         this.claudeManager.setSessionId(claudeSessionId);
         if (chatSessionId) {

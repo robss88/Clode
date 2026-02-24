@@ -21,6 +21,7 @@ export default function App() {
   const [fileTree, setFileTree] = useState<FileNode | null>(null);
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [editSnapshot, setEditSnapshot] = useState<{ messages: Message[]; headHash: string } | null>(null);
+  const [restoredAtMessageId, setRestoredAtMessageId] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
 
   const {
@@ -56,7 +57,6 @@ export default function App() {
         }
 
         // Fire-and-forget — don't block init on Claude process startup
-        // Pass stored Claude session ID for --resume support across reloads
         bridge.startClaude(chat.id, chat.claudeSessionId);
 
         // Restore messages from the active chat
@@ -84,7 +84,6 @@ export default function App() {
       const { appendStreamingContent, setCurrentToolCall, setStreaming, clearStreamingContent, addMessage } = useAgentStore.getState();
 
       if (chunk.type === 'init' && chunk.sessionId) {
-        // Persist Claude CLI session ID for resume across reloads
         const chatId = useChatSessionStore.getState().activeChatId;
         if (chatId) {
           useChatSessionStore.getState().updateChat(chatId, { claudeSessionId: chunk.sessionId });
@@ -133,7 +132,7 @@ export default function App() {
         updateMessage(message.id, { checkpointCommitHash: commitHash });
       }
 
-      // Auto-name the chat session from first user message + AI summary
+      // Auto-name the chat session
       const chatId = useChatSessionStore.getState().activeChatId;
       if (chatId) {
         const chat = useChatSessionStore.getState().sessions[chatId];
@@ -145,7 +144,6 @@ export default function App() {
               .replace(/<file\s+path="[^"]*">\n?[\s\S]*?\n?<\/file>/g, '')
               .replace(/^\n+/, '')
               .trim();
-            // Use first line/sentence, capped at 40 chars
             const firstLine = stripped.split(/[\n.!?]/)[0]?.trim() || stripped;
             const name = firstLine.slice(0, 40).trim() || 'New Chat';
             useChatSessionStore.getState().updateChat(chatId, { name });
@@ -190,6 +188,15 @@ export default function App() {
   // Send message (with slash command interception)
   const handleSendMessage = useCallback(async (content: string, context?: ContextItem[]) => {
     setEditSnapshot(null);
+    // If we were in a restored state, truncate faded messages before sending
+    if (restoredAtMessageId) {
+      const currentMessages = useAgentStore.getState().messages;
+      const restoreIndex = currentMessages.findIndex((m) => m.id === restoredAtMessageId);
+      if (restoreIndex >= 0) {
+        useAgentStore.getState().truncateAfterMessage(restoredAtMessageId);
+      }
+      setRestoredAtMessageId(null);
+    }
     const modeFlags = getModeFlags(useUIStore.getState().mode);
 
     // Reattach branch if in detached HEAD (fire-and-forget)
@@ -271,7 +278,7 @@ export default function App() {
     bridge.sendMessage(content, {
       extraFlags: modeFlags.length > 0 ? modeFlags : undefined,
     });
-  }, [bridge, addMessage, setStreaming, addSystemMessage]);
+  }, [bridge, addMessage, setStreaming, addSystemMessage, restoredAtMessageId]);
 
   // Implement plan — leverages session resumption so Claude has full planning context
   const handleImplementPlan = useCallback(async (planContent: string) => {
@@ -288,20 +295,16 @@ export default function App() {
     setCurrentToolCall(null);
   }, [bridge, setStreaming, clearStreamingContent, setCurrentToolCall]);
 
-  // Restore to message
+  // Restore to message — fades out subsequent messages (Cursor-style) instead of deleting them
   const handleRestoreToMessage = useCallback(async (messageId: string) => {
     const currentMessages = useAgentStore.getState().messages;
     const messageIndex = currentMessages.findIndex((m) => m.id === messageId);
     if (messageIndex === -1) return;
 
     const message = currentMessages[messageIndex];
-    let truncateToId: string | null = null;
     let checkpointHash: string | undefined;
 
     if (message.role === 'user') {
-      if (messageIndex > 0) {
-        truncateToId = currentMessages[messageIndex - 1].id;
-      }
       for (let i = messageIndex - 1; i >= 0; i--) {
         if (currentMessages[i].role === 'assistant' && currentMessages[i].checkpointCommitHash) {
           checkpointHash = currentMessages[i].checkpointCommitHash;
@@ -309,7 +312,6 @@ export default function App() {
         }
       }
     } else if (message.role === 'assistant') {
-      truncateToId = message.id;
       checkpointHash = message.checkpointCommitHash;
     }
 
@@ -317,11 +319,13 @@ export default function App() {
       await bridge.resetGitToCommit(checkpointHash);
     }
 
-    if (truncateToId) {
-      useAgentStore.getState().truncateAfterMessage(truncateToId);
-    } else {
-      useAgentStore.getState().clearMessages();
+    // Fade out messages after this point instead of deleting
+    // Find the user message at or before this point to mark as the restore boundary
+    let restoreId = messageId;
+    if (message.role === 'user' && messageIndex > 0) {
+      restoreId = currentMessages[messageIndex - 1].id;
     }
+    setRestoredAtMessageId(restoreId);
   }, [bridge]);
 
   // Edit message
@@ -365,20 +369,21 @@ export default function App() {
     useAgentStore.getState().setDraftInput(editContent);
   }, [bridge]);
 
-  // Edit message and continue without reverting git
+  // Edit message and continue without reverting git — truncates and resends
   const handleEditMessageAndContinue = useCallback(async (messageId: string, newContent: string) => {
     const currentMessages = useAgentStore.getState().messages;
     const messageIndex = currentMessages.findIndex((m) => m.id === messageId);
     if (messageIndex === -1) return;
 
-    // Truncate everything after this message
+    // Truncate everything from this message onwards
     if (messageIndex > 0) {
       useAgentStore.getState().truncateAfterMessage(currentMessages[messageIndex - 1].id);
     } else {
       useAgentStore.getState().clearMessages();
     }
 
-    // Send the new content as a fresh message
+    setRestoredAtMessageId(null);
+    // Send the edited content as a fresh message
     await handleSendMessage(newContent);
   }, [handleSendMessage]);
 
@@ -487,6 +492,7 @@ export default function App() {
           onEditMessage={handleEditMessage}
           onEditMessageAndContinue={handleEditMessageAndContinue}
           onCancelEdit={handleCancelEdit}
+          restoredAtMessageId={restoredAtMessageId}
           onReadFile={(path) => bridge.readFile(path)}
           onImplementPlan={handleImplementPlan}
           onModelChange={(model) => bridge.setModel(model)}
