@@ -13,7 +13,6 @@ import {
   Copy,
   Check,
   RotateCcw,
-  Pencil,
   File,
   Folder,
   Slash,
@@ -898,8 +897,8 @@ function MessageBubble({
                   </>
                 );
               })()}
-              {/* Restore checkpoint — always visible at bottom-right of user message (like Cursor) */}
-              {!isFadedOut && isUser && hasCheckpoint && onRestore && (
+              {/* Restore checkpoint — always visible at bottom-right of user message */}
+              {isUser && hasCheckpoint && onRestore && (
                 <div className="flex justify-end mt-1.5 -mb-0.5">
                   <button
                     type="button"
@@ -913,21 +912,6 @@ function MessageBubble({
                 </div>
               )}
             </div>
-
-            {/* Hover action toolbar for user messages — edit */}
-            {isUser && canEdit && (
-              <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  type="button"
-                  onClick={startEditing}
-                  className="flex items-center gap-1 px-2 py-1 text-[11px] text-foreground-muted hover:text-foreground hover:bg-background-hover rounded transition-colors"
-                  title="Edit message"
-                >
-                  <Pencil className="w-3 h-3" />
-                  Edit
-                </button>
-              </div>
-            )}
           </>
         )}
 
@@ -936,21 +920,6 @@ function MessageBubble({
           <ToolCallGroup toolCalls={message.toolCalls} />
         )}
       </motion.div>
-
-      {/* Restore checkpoint — always visible outside faded container (for both user and assistant messages) */}
-      {isFadedOut && hasCheckpoint && onRestore && (
-        <div className={clsx('mt-1', isAssistant && 'flex justify-end')}>
-          <button
-            type="button"
-            onClick={onRestore}
-            className="flex items-center gap-1 px-2 py-1 text-[11px] text-foreground-muted hover:text-foreground hover:bg-background-hover rounded transition-colors"
-            title="Restore code to this checkpoint"
-          >
-            <RotateCcw className="w-3 h-3" />
-            Restore checkpoint
-          </button>
-        </div>
-      )}
 
       {/* Confirmation dialog for editing a previous message */}
       {showConfirmDialog && (
