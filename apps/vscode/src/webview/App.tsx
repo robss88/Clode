@@ -320,12 +320,8 @@ export default function App() {
     }
 
     // Fade out messages after this point instead of deleting
-    // Find the user message at or before this point to mark as the restore boundary
-    let restoreId = messageId;
-    if (message.role === 'user' && messageIndex > 0) {
-      restoreId = currentMessages[messageIndex - 1].id;
-    }
-    setRestoredAtMessageId(restoreId);
+    // The clicked message stays solid; everything AFTER it fades
+    setRestoredAtMessageId(messageId);
   }, [bridge]);
 
   // Edit message

@@ -451,6 +451,7 @@ export function ChatInterface({
         <AnimatePresence initial={false}>
           {messages.map((message, index) => {
             // Determine if this message is after a restore point (should be faded)
+            // restoredAtMessageId is the user message we restored TO — everything AFTER it fades
             const restoredIndex = restoredAtMessageId
               ? messages.findIndex((m) => m.id === restoredAtMessageId)
               : -1;
@@ -462,17 +463,17 @@ export function ChatInterface({
               ref={(el) => { if (el) messageRefs.current.set(message.id, el); }}
               className={clsx(
                 'px-4',
-                message.role === 'user' && 'sticky top-0 z-10 bg-background py-3',
-                isFadedOut && 'opacity-40 pointer-events-none'
+                message.role === 'user' && 'sticky top-0 z-10 bg-background py-3'
               )}
             >
               <MessageBubble
                 message={message}
                 previousMessage={index > 0 ? messages[index - 1] : undefined}
                 isLastMessage={index === messages.length - 1}
+                isFadedOut={isFadedOut}
                 onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
-                onEditAndRevert={message.role === 'user' && onEditMessage ? () => onEditMessage(message.id) : undefined}
-                onEditAndContinue={message.role === 'user' && onEditMessageAndContinue ? (newContent: string) => onEditMessageAndContinue(message.id, newContent) : undefined}
+                onEditAndRevert={!isFadedOut && message.role === 'user' && onEditMessage ? () => onEditMessage(message.id) : undefined}
+                onEditAndContinue={!isFadedOut && message.role === 'user' && onEditMessageAndContinue ? (newContent: string) => onEditMessageAndContinue(message.id, newContent) : undefined}
               />
               {/* Implement Plan button — shown on the last assistant message when in plan mode */}
               {mode === 'plan' &&
@@ -747,6 +748,7 @@ function MessageBubble({
   message,
   previousMessage,
   isLastMessage,
+  isFadedOut,
   onRestore,
   onEditAndRevert,
   onEditAndContinue,
@@ -754,6 +756,7 @@ function MessageBubble({
   message: Message;
   previousMessage?: Message;
   isLastMessage?: boolean;
+  isFadedOut?: boolean;
   onRestore?: () => void;
   onEditAndRevert?: () => void;
   onEditAndContinue?: (newContent: string) => void;
@@ -830,10 +833,10 @@ function MessageBubble({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
-        className="group relative"
+        className={clsx('group relative', isFadedOut && 'opacity-40')}
       >
         {/* Inline editing mode */}
-        {isInlineEditing ? (
+        {!isFadedOut && isInlineEditing ? (
           <div className="bg-background-tertiary border border-foreground-muted rounded-lg overflow-hidden">
             <textarea
               ref={editRef}
@@ -905,19 +908,6 @@ function MessageBubble({
               )}
             </div>
 
-            {/* Restore checkpoint link */}
-            {isUser && hasCheckpoint && onRestore && (
-              <div className="mt-1">
-                <button
-                  type="button"
-                  onClick={onRestore}
-                  className="flex items-center gap-1 text-[11px] text-foreground-muted hover:text-foreground transition-colors"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  Restore checkpoint
-                </button>
-              </div>
-            )}
           </>
         )}
 
@@ -926,6 +916,20 @@ function MessageBubble({
           <ToolCallGroup toolCalls={message.toolCalls} />
         )}
       </motion.div>
+
+      {/* Restore checkpoint link — outside faded container so it's always fully visible & clickable */}
+      {isUser && hasCheckpoint && onRestore && (
+        <div className="mt-1">
+          <button
+            type="button"
+            onClick={onRestore}
+            className="flex items-center gap-1 text-[11px] text-foreground-muted hover:text-foreground transition-colors"
+          >
+            <RotateCcw className="w-3 h-3" />
+            Restore checkpoint
+          </button>
+        </div>
+      )}
 
       {/* Confirmation dialog for editing a previous message */}
       {showConfirmDialog && (
