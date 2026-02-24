@@ -1,8 +1,6 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Send,
-  Square,
   Loader2,
   CheckCircle2,
   XCircle,
@@ -14,10 +12,6 @@ import {
   Check,
   RotateCcw,
   File,
-  Folder,
-  Slash,
-  X,
-  Paperclip,
   Upload,
   Play,
   ChevronRight,
@@ -27,11 +21,9 @@ import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import clsx from 'clsx';
 import type { Message, ToolCall, FileNode, ContextItem } from '@claude-agent/core';
-import { useAgentStore, useUIStore } from '../../stores';
-import { getAvailableCommands, parseSlashCommand, MODES } from '../../commands';
-import { ModeSelector } from './ModeSelector';
-import { ModelSelector } from './ModelSelector';
+import { useUIStore } from '../../stores';
 import { ContextBubbleList } from './ContextBubble';
+import { ChatInput } from './ChatInput';
 
 interface ChatInterfaceProps {
   messages: Message[];
@@ -50,28 +42,6 @@ interface ChatInterfaceProps {
   onModelChange?: (model: string) => void;
 }
 
-// Flatten file tree to get all file paths
-// Uses node.path (absolute) for file reads, and builds a display path relative to the project root.
-function flattenFileTree(node: FileNode, rootPath?: string): Array<{ path: string; displayPath: string; name: string; type: 'file' | 'directory' }> {
-  const root = rootPath ?? node.path;
-  const results: Array<{ path: string; displayPath: string; name: string; type: 'file' | 'directory' }> = [];
-
-  // Compute a short display path relative to project root
-  const displayPath = node.path === root
-    ? node.name
-    : node.path.startsWith(root + '/') ? node.path.slice(root.length + 1) : node.name;
-
-  results.push({ path: node.path, displayPath, name: node.name, type: node.type });
-
-  if (node.children) {
-    for (const child of node.children) {
-      results.push(...flattenFileTree(child, root));
-    }
-  }
-
-  return results;
-}
-
 export function ChatInterface({
   messages,
   isStreaming,
@@ -88,201 +58,18 @@ export function ChatInterface({
   restoredAtMessageId,
   checkpointMessageIds,
 }: ChatInterfaceProps) {
-  const [input, setInput] = useState('');
-  const [showMentions, setShowMentions] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState('');
-  const [mentionIndex, setMentionIndex] = useState(0);
-  const [mentionStartPos, setMentionStartPos] = useState(0);
-  const [showSlashCommands, setShowSlashCommands] = useState(false);
-  const [slashQuery, setSlashQuery] = useState('');
-  const [slashIndex, setSlashIndex] = useState(0);
-  const [contextItems, setContextItems] = useState<ContextItem[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const mentionListRef = useRef<HTMLDivElement>(null);
-  const slashListRef = useRef<HTMLDivElement>(null);
   const dragCountRef = useRef(0);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  // Mode selector
+  // Mode selector (still needed for plan mode button check)
   const mode = useUIStore((state) => state.mode);
-  const setMode = useUIStore((state) => state.setMode);
-  const currentModeDefinition = MODES[mode];
-
-  // Model selector
-  const model = useUIStore((state) => state.model);
-  const setModel = useUIStore((state) => state.setModel);
-
-  // Subscribe to draft input from store (set when editing a previous message)
-  const draftInput = useAgentStore((state) => state.draftInput);
-  const setDraftInput = useAgentStore((state) => state.setDraftInput);
-
-  // Consume draft input when it changes
-  useEffect(() => {
-    if (draftInput) {
-      setInput(draftInput);
-      setDraftInput('');
-      setTimeout(() => {
-        if (inputRef.current) {
-          inputRef.current.focus();
-          inputRef.current.setSelectionRange(draftInput.length, draftInput.length);
-        }
-      }, 50);
-    }
-  }, [draftInput, setDraftInput]);
-
-  const scrollToMessage = useCallback((messageId: string) => {
-    const el = messageRefs.current.get(messageId);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, []);
-
-  // Flatten file tree for search
-  const allFiles = useMemo(() => {
-    if (!fileTree) return [];
-    return flattenFileTree(fileTree).filter(f => f.type === 'file');
-  }, [fileTree]);
-
-  // Filter files based on mention query
-  const filteredFiles = useMemo(() => {
-    if (!mentionQuery) return allFiles.slice(0, 10);
-    const query = mentionQuery.toLowerCase();
-    return allFiles
-      .filter(f => f.displayPath.toLowerCase().includes(query) || f.name.toLowerCase().includes(query))
-      .slice(0, 10);
-  }, [allFiles, mentionQuery]);
-
-  // Filter slash commands
-  const filteredCommands = useMemo(() => {
-    const all = getAvailableCommands();
-    if (!slashQuery) return all;
-    const q = slashQuery.toLowerCase();
-    return all.filter(c => c.name.startsWith(q));
-  }, [slashQuery]);
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent, currentToolCall]);
-
-  // Auto-focus input
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  // Auto-resize textarea to fit content (max ~12 lines)
-  useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.style.height = '40px';
-    const maxHeight = 240; // ~12 lines at 20px line height
-    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-  }, [input]);
-
-  // Scroll mention list item into view
-  useEffect(() => {
-    if (showMentions && mentionListRef.current) {
-      const selectedItem = mentionListRef.current.children[mentionIndex] as HTMLElement;
-      selectedItem?.scrollIntoView({ block: 'nearest' });
-    }
-  }, [mentionIndex, showMentions]);
-
-  // Scroll slash command list item into view
-  useEffect(() => {
-    if (showSlashCommands && slashListRef.current) {
-      const items = slashListRef.current.querySelectorAll('[data-command]');
-      const selectedItem = items[slashIndex] as HTMLElement;
-      selectedItem?.scrollIntoView({ block: 'nearest' });
-    }
-  }, [slashIndex, showSlashCommands]);
-
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    const cursorPos = e.target.selectionStart || 0;
-    setInput(value);
-
-    // Check for slash command (only at start of input)
-    if (value.startsWith('/')) {
-      const parsed = parseSlashCommand(value);
-      if (parsed && !value.includes(' ')) {
-        // Still typing the command name, show autocomplete
-        setShowSlashCommands(true);
-        setSlashQuery(parsed.command);
-        setSlashIndex(0);
-        setShowMentions(false);
-        return;
-      }
-    }
-    setShowSlashCommands(false);
-    setSlashQuery('');
-
-    // Check for @ mention
-    const textBeforeCursor = value.slice(0, cursorPos);
-    const atIndex = textBeforeCursor.lastIndexOf('@');
-
-    if (atIndex !== -1) {
-      // Check if there's a space before @ (or @ is at start)
-      const charBeforeAt = atIndex > 0 ? textBeforeCursor[atIndex - 1] : ' ';
-      if (charBeforeAt === ' ' || charBeforeAt === '\n' || atIndex === 0) {
-        const query = textBeforeCursor.slice(atIndex + 1);
-        // Only show if query doesn't contain spaces (single file reference)
-        if (!query.includes(' ')) {
-          setShowMentions(true);
-          setMentionQuery(query);
-          setMentionStartPos(atIndex);
-          setMentionIndex(0);
-          return;
-        }
-      }
-    }
-
-    setShowMentions(false);
-    setMentionQuery('');
-  }, []);
-
-  const insertMention = useCallback((filePath: string) => {
-    const fileName = filePath.split('/').pop() || filePath;
-    // Remove the @query from input
-    const beforeMention = input.slice(0, mentionStartPos);
-    const afterMention = input.slice(mentionStartPos + mentionQuery.length + 1);
-    const newInput = `${beforeMention}${afterMention}`.trim();
-    setInput(newInput);
-    setShowMentions(false);
-    setMentionQuery('');
-
-    // Add as context item
-    const item: ContextItem = {
-      id: `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      type: 'file',
-      name: fileName,
-      path: filePath,
-    };
-    setContextItems(prev => {
-      if (prev.some(c => c.path === filePath)) return prev;
-      return [...prev, item];
-    });
-
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-      }
-    }, 0);
-  }, [input, mentionStartPos, mentionQuery]);
-
-  const insertSlashCommand = useCallback((commandName: string) => {
-    const newInput = `/${commandName} `;
-    setInput(newInput);
-    setShowSlashCommands(false);
-    setSlashQuery('');
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-        inputRef.current.setSelectionRange(newInput.length, newInput.length);
-      }
-    }, 0);
-  }, []);
 
   // Drag & drop handlers
   const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -313,114 +100,7 @@ export function ChatInterface({
     e.stopPropagation();
     dragCountRef.current = 0;
     setIsDragOver(false);
-
-    const files = Array.from(e.dataTransfer.files);
-    const newItems: ContextItem[] = files.map(f => ({
-      id: `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      type: 'file' as const,
-      name: f.name,
-      path: (f as any).path || f.name,
-    }));
-
-    setContextItems(prev => {
-      const existing = new Set(prev.map(c => c.path));
-      const unique = newItems.filter(c => !existing.has(c.path));
-      return [...prev, ...unique];
-    });
   }, []);
-
-  const removeContextItem = useCallback((id: string) => {
-    setContextItems(prev => prev.filter(c => c.id !== id));
-  }, []);
-
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if ((!input.trim() && contextItems.length === 0) || isStreaming) return;
-
-    let content = input.trim();
-
-    // Load file contents for context items and inline them for Claude
-    const resolvedContext: ContextItem[] = [];
-    if (contextItems.length > 0 && onReadFile) {
-      const fileParts: string[] = [];
-      for (const item of contextItems) {
-        if (item.type === 'file' && item.path) {
-          const fileContent = await onReadFile(item.path);
-          if (fileContent !== null) {
-            fileParts.push(`<file path="${item.path}">\n${fileContent}\n</file>`);
-            resolvedContext.push({ ...item, content: fileContent, preview: fileContent.slice(0, 200) });
-          } else {
-            resolvedContext.push(item);
-          }
-        } else {
-          resolvedContext.push(item);
-        }
-      }
-      if (fileParts.length > 0) {
-        content = `${fileParts.join('\n\n')}\n\n${content}`;
-      }
-    }
-
-    onSendMessage(content, resolvedContext.length > 0 ? resolvedContext : undefined);
-    setInput('');
-    setContextItems([]);
-    setShowMentions(false);
-  }, [input, isStreaming, onSendMessage, contextItems, onReadFile]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // Handle slash command navigation
-    if (showSlashCommands && filteredCommands.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSlashIndex(prev => (prev + 1) % filteredCommands.length);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSlashIndex(prev => (prev - 1 + filteredCommands.length) % filteredCommands.length);
-        return;
-      }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
-        e.preventDefault();
-        insertSlashCommand(filteredCommands[slashIndex].name);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setShowSlashCommands(false);
-        return;
-      }
-    }
-
-    // Handle mention navigation
-    if (showMentions && filteredFiles.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setMentionIndex(prev => (prev + 1) % filteredFiles.length);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setMentionIndex(prev => (prev - 1 + filteredFiles.length) % filteredFiles.length);
-        return;
-      }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
-        e.preventDefault();
-        insertMention(filteredFiles[mentionIndex].path);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setShowMentions(false);
-        return;
-      }
-    }
-
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
-  }, [showSlashCommands, filteredCommands, slashIndex, insertSlashCommand, showMentions, filteredFiles, mentionIndex, insertMention, handleSubmit]);
 
   return (
     <div
@@ -500,6 +180,8 @@ export function ChatInterface({
                         onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
                         onEditAndContinue={!isFadedOut && message.role === 'user' && onEditMessageAndContinue ? (newContent: string) => onEditMessageAndContinue(message.id, newContent) : undefined}
                         onModelChange={onModelChange}
+                        fileTree={fileTree}
+                        onReadFile={onReadFile}
                       />
                       {mode === 'plan' &&
                         !isStreaming &&
@@ -569,143 +251,19 @@ export function ChatInterface({
         </div>
       </div>
 
-      {/* Input area — unified container like Cursor */}
+      {/* Input area */}
       <div className="px-3 py-2">
-        <form onSubmit={handleSubmit} className="relative">
-          {/* Slash command autocomplete dropdown */}
-          <AnimatePresence>
-            {showSlashCommands && filteredCommands.length > 0 && (
-              <motion.div
-                ref={slashListRef}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto bg-background-secondary border border-border rounded-lg shadow-xl z-20"
-              >
-                <div className="p-1">
-                  <div className="px-2 py-1 text-xs text-foreground-muted">Commands</div>
-                  {filteredCommands.map((cmd, index) => (
-                    <button
-                      key={cmd.name}
-                      type="button"
-                      data-command={cmd.name}
-                      onClick={() => insertSlashCommand(cmd.name)}
-                      className={clsx(
-                        'w-full flex items-center gap-3 px-2 py-1.5 text-sm rounded text-left transition-colors',
-                        index === slashIndex
-                          ? 'bg-background-hover text-foreground'
-                          : 'hover:bg-background-hover'
-                      )}
-                    >
-                      <Slash className="w-4 h-4 text-foreground-muted flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <span className="font-mono font-medium">/{cmd.name}</span>
-                        <span className="ml-2 text-xs text-foreground-muted">{cmd.description}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* File mention autocomplete dropdown */}
-          <AnimatePresence>
-            {showMentions && filteredFiles.length > 0 && (
-              <motion.div
-                ref={mentionListRef}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto bg-background-secondary border border-border rounded-lg shadow-xl z-20"
-              >
-                <div className="p-1">
-                  <div className="px-2 py-1 text-xs text-foreground-muted">
-                    Files {mentionQuery && `matching "${mentionQuery}"`}
-                  </div>
-                  {filteredFiles.map((file, index) => (
-                    <button
-                      key={file.path}
-                      type="button"
-                      onClick={() => insertMention(file.path)}
-                      className={clsx(
-                        'w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded text-left transition-colors',
-                        index === mentionIndex
-                          ? 'bg-background-hover text-foreground'
-                          : 'hover:bg-background-hover'
-                      )}
-                    >
-                      <File className="w-4 h-4 text-foreground-muted flex-shrink-0" />
-                      <span className="truncate">{file.displayPath}</span>
-                    </button>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Unified input container — textarea + selectors in one box */}
-          <div className="bg-background-tertiary border border-border-secondary rounded-lg focus-within:border-foreground-muted transition-colors">
-            {/* Context bubbles */}
-            {contextItems.length > 0 && (
-              <div className="px-3 pt-2">
-                <ContextBubbleList
-                  items={contextItems}
-                  onRemove={removeContextItem}
-                />
-              </div>
-            )}
-
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              placeholder="Message, @ for context, / for commands"
-              disabled={isStreaming}
-              rows={1}
-              className="w-full px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-foreground-muted focus:outline-none resize-none"
-              style={{ height: '40px' }}
-            />
-
-            {/* Bottom bar: mode/model selectors + send button */}
-            <div className="flex items-center px-1.5 pb-1.5">
-              <ModeSelector mode={mode} onModeChange={setMode} />
-              <ModelSelector
-                model={model}
-                onModelChange={(m) => {
-                  setModel(m);
-                  onModelChange?.(m);
-                }}
-              />
-              <span className="flex-1" />
-              {isStreaming ? (
-                <button
-                  type="button"
-                  onClick={onInterrupt}
-                  className="w-7 h-7 flex items-center justify-center rounded-full text-error hover:bg-background-hover transition-colors"
-                  title="Stop generation"
-                >
-                  <Square className="w-3.5 h-3.5" />
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={!input.trim()}
-                  className={clsx(
-                    'w-7 h-7 flex items-center justify-center rounded-full transition-colors',
-                    input.trim()
-                      ? 'bg-foreground text-background hover:bg-foreground-secondary'
-                      : 'text-foreground-muted'
-                  )}
-                  title="Send message"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-        </form>
+        <ChatInput
+          fileTree={fileTree}
+          disabled={isStreaming}
+          isStreaming={isStreaming}
+          onSubmit={onSendMessage}
+          onInterrupt={onInterrupt}
+          onReadFile={onReadFile}
+          onModelChange={onModelChange}
+          dropdownDirection="up"
+          autoFocus
+        />
       </div>
     </div>
   );
@@ -765,6 +323,8 @@ function MessageBubble({
   onRestore,
   onEditAndContinue,
   onModelChange,
+  fileTree,
+  onReadFile,
 }: {
   message: Message;
   isLastMessage?: boolean;
@@ -773,20 +333,15 @@ function MessageBubble({
   onRestore?: () => void;
   onEditAndContinue?: (newContent: string) => void;
   onModelChange?: (model: string) => void;
+  fileTree?: FileNode | null;
+  onReadFile?: (path: string) => Promise<string | null>;
 }) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
   const isSystem = message.role === 'system';
   const [isInlineEditing, setIsInlineEditing] = useState(false);
-  const [editContent, setEditContent] = useState('');
-
-  // Access shared mode/model from store so edit input stays in sync with bottom input
-  const mode = useUIStore((state) => state.mode);
-  const setMode = useUIStore((state) => state.setMode);
-  const model = useUIStore((state) => state.model);
-  const setModel = useUIStore((state) => state.setModel);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const editRef = useRef<HTMLTextAreaElement>(null);
+  const [pendingEditContent, setPendingEditContent] = useState('');
 
   // System messages render as centered, muted text
   if (isSystem) {
@@ -808,38 +363,17 @@ function MessageBubble({
 
   const startEditing = () => {
     if (!canEdit) return;
-    const { textContent } = parseFileContext(message.content);
-    setEditContent(textContent);
     setIsInlineEditing(true);
-    setTimeout(() => {
-      if (editRef.current) {
-        editRef.current.focus();
-        editRef.current.setSelectionRange(textContent.length, textContent.length);
-        editRef.current.style.height = '40px';
-        const maxHeight = 240;
-        editRef.current.style.height = `${Math.min(editRef.current.scrollHeight, maxHeight)}px`;
-      }
-    }, 50);
   };
 
-  const handleEditSubmit = () => {
-    if (!editContent.trim()) return;
+  const handleEditSubmit = (content: string) => {
+    if (!content.trim()) return;
     if (!isLastMessage) {
+      setPendingEditContent(content);
       setShowConfirmDialog(true);
     } else {
-      onEditAndContinue?.(editContent);
+      onEditAndContinue?.(content);
       setIsInlineEditing(false);
-    }
-  };
-
-  const handleEditKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleEditSubmit();
-    }
-    if (e.key === 'Escape') {
-      setIsInlineEditing(false);
-      setShowConfirmDialog(false);
     }
   };
 
@@ -849,6 +383,8 @@ function MessageBubble({
       onRestore();
     }
   };
+
+  const editInitialValue = parseFileContext(message.content).textContent;
 
   return (
     <>
@@ -860,57 +396,19 @@ function MessageBubble({
         className={clsx('group relative', isFadedOut && 'cursor-pointer')}
         onClick={isFadedOut ? handleFadedClick : undefined}
       >
-        {/* Inline editing mode — matches bottom input styling */}
+        {/* Inline editing mode — uses shared ChatInput component */}
         {!isFadedOut && isInlineEditing ? (
-          <div className="bg-background-tertiary border border-border-secondary rounded-lg focus-within:border-foreground-muted transition-colors">
-            <textarea
-              ref={editRef}
-              value={editContent}
-              onChange={(e) => {
-                setEditContent(e.target.value);
-                e.target.style.height = '40px';
-                const maxHeight = 240;
-                e.target.style.height = `${Math.min(e.target.scrollHeight, maxHeight)}px`;
-              }}
-              onKeyDown={handleEditKeyDown}
-              placeholder="Edit message..."
-              className="w-full px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-foreground-muted focus:outline-none resize-none"
-              style={{ height: '40px' }}
-            />
-            <div className="flex items-center px-1.5 pb-1.5">
-              <ModeSelector mode={mode} onModeChange={setMode} dropdownDirection="down" />
-              <ModelSelector
-                model={model}
-                onModelChange={(m) => {
-                  setModel(m);
-                  onModelChange?.(m);
-                }}
-                dropdownDirection="down"
-              />
-              <button
-                type="button"
-                onClick={() => { setIsInlineEditing(false); setShowConfirmDialog(false); }}
-                className="px-2 py-1 text-xs text-foreground-muted hover:text-foreground transition-colors ml-1"
-              >
-                Cancel
-              </button>
-              <span className="flex-1" />
-              <button
-                type="button"
-                onClick={handleEditSubmit}
-                disabled={!editContent.trim()}
-                className={clsx(
-                  'w-7 h-7 flex items-center justify-center rounded-full transition-colors',
-                  editContent.trim()
-                    ? 'bg-foreground text-background hover:bg-foreground-secondary'
-                    : 'text-foreground-muted'
-                )}
-                title="Submit edit"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
+          <ChatInput
+            initialValue={editInitialValue}
+            placeholder="Edit message..."
+            fileTree={fileTree}
+            onSubmit={handleEditSubmit}
+            onCancel={() => { setIsInlineEditing(false); setShowConfirmDialog(false); }}
+            onReadFile={onReadFile}
+            onModelChange={onModelChange}
+            dropdownDirection="down"
+            autoFocus
+          />
         ) : (
           <>
             {/* Normal message display */}
@@ -989,7 +487,7 @@ function MessageBubble({
               <button
                 type="button"
                 onClick={() => {
-                  onEditAndContinue(editContent);
+                  onEditAndContinue(pendingEditContent);
                   setShowConfirmDialog(false);
                   setIsInlineEditing(false);
                 }}
