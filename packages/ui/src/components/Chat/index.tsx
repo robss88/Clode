@@ -136,7 +136,7 @@ export function ChatInterface({
   const scrollToMessage = useCallback((messageId: string) => {
     const el = messageRefs.current.get(messageId);
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, []);
 
@@ -774,7 +774,7 @@ function MessageBubble({
         <div className={clsx(
           'message-content',
           isUser
-            ? 'message-content-user font-medium text-foreground bg-background-secondary rounded-lg px-3 py-2'
+            ? 'message-content-user font-medium text-foreground bg-background-hover border border-border-secondary rounded-lg px-3 py-2'
             : 'message-content-assistant'
         )}>
           {(() => {

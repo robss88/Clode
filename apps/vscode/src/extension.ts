@@ -10,6 +10,15 @@ export function activate(context: vscode.ExtensionContext) {
 
   provider = new ClaudeAgentViewProvider(context.extensionUri, workingDir);
 
+  // Register serializer so VS Code preserves webview state across window reloads
+  context.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer('claude-agent', {
+      async deserializeWebviewPanel(panel: vscode.WebviewPanel, _state: any) {
+        provider?.restorePanel(panel);
+      },
+    })
+  );
+
   // Open panel command — creates or reveals the editor panel
   context.subscriptions.push(
     vscode.commands.registerCommand('claude-agent.openPanel', () => {

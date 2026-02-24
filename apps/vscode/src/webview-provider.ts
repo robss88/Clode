@@ -33,6 +33,28 @@ export class ClaudeAgentViewProvider {
     );
 
     this._panel.webview.html = this._getHtmlForWebview(this._panel.webview);
+    this._setupPanel();
+  }
+
+  /**
+   * Restore a panel that VS Code deserialized after a window reload.
+   * The webview already has its previous state via vscodeApi.getState().
+   */
+  public restorePanel(panel: vscode.WebviewPanel) {
+    if (this._panel) {
+      this._panel.dispose();
+    }
+    this._panel = panel;
+    this._panel.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [this._extensionUri],
+    };
+    this._panel.webview.html = this._getHtmlForWebview(this._panel.webview);
+    this._setupPanel();
+  }
+
+  private _setupPanel() {
+    if (!this._panel) return;
 
     // Clean up on panel close
     this._panel.onDidDispose(() => {
