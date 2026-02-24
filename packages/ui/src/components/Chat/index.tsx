@@ -815,13 +815,24 @@ function MessageBubble({
     }
   };
 
+  // When faded, clicking the entire section restores to that point
+  const handleFadedClick = () => {
+    if (isFadedOut && onRestore) {
+      onRestore();
+    }
+  };
+
   return (
     <>
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
-        className={clsx('group relative', isFadedOut && 'opacity-40')}
+        className={clsx(
+          'group relative',
+          isFadedOut && 'opacity-40 cursor-pointer hover:opacity-60 transition-opacity'
+        )}
+        onClick={isFadedOut ? handleFadedClick : undefined}
       >
         {/* Inline editing mode — matches bottom input styling */}
         {!isFadedOut && isInlineEditing ? (
@@ -875,7 +886,7 @@ function MessageBubble({
                   ? 'message-content-user font-medium text-foreground bg-background-tertiary border border-border-secondary rounded-lg px-3 py-2 cursor-pointer hover:border-foreground-muted transition-colors'
                   : 'message-content-assistant'
               )}
-              onClick={canEdit ? startEditing : undefined}
+              onClick={!isFadedOut && canEdit ? startEditing : undefined}
             >
               {(() => {
                 if (isUser && message.context && message.context.length > 0) {
@@ -897,8 +908,8 @@ function MessageBubble({
                   </>
                 );
               })()}
-              {/* Restore checkpoint — always visible at bottom-right of user message */}
-              {isUser && hasCheckpoint && onRestore && (
+              {/* Restore checkpoint — only on non-faded user messages */}
+              {!isFadedOut && isUser && hasCheckpoint && onRestore && (
                 <div className="flex justify-end mt-1.5 -mb-0.5">
                   <button
                     type="button"
