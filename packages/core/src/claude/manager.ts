@@ -208,6 +208,17 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
                   content: '',
                   toolCall,
                 });
+              } else if (block.input && Object.keys(block.input).length > 0) {
+                // Update input if it's now populated (streaming may deliver input after initial block)
+                const existing = currentToolCalls.get(block.id)!;
+                if (!existing.input || Object.keys(existing.input).length === 0) {
+                  existing.input = block.input;
+                  this.emit('chunk', {
+                    type: 'tool_call',
+                    content: '',
+                    toolCall: existing,
+                  });
+                }
               }
             }
           }
@@ -450,21 +461,33 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
               content: delta,
             });
           }
-        } else if (block.type === 'tool_use' && !currentToolCalls.has(block.id)) {
-          const toolCall: ToolCall = {
-            id: block.id,
-            name: block.name,
-            input: block.input || {},
-            status: 'running',
-          };
-          currentToolCalls.set(block.id, toolCall);
-          currentMessage.toolCalls?.push(toolCall);
-          this.emit('tool:start', toolCall);
-          this.emit('chunk', {
-            type: 'tool_call',
-            content: '',
-            toolCall,
-          });
+        } else if (block.type === 'tool_use') {
+          if (!currentToolCalls.has(block.id)) {
+            const toolCall: ToolCall = {
+              id: block.id,
+              name: block.name,
+              input: block.input || {},
+              status: 'running',
+            };
+            currentToolCalls.set(block.id, toolCall);
+            currentMessage.toolCalls?.push(toolCall);
+            this.emit('tool:start', toolCall);
+            this.emit('chunk', {
+              type: 'tool_call',
+              content: '',
+              toolCall,
+            });
+          } else if (block.input && Object.keys(block.input).length > 0) {
+            const existing = currentToolCalls.get(block.id)!;
+            if (!existing.input || Object.keys(existing.input).length === 0) {
+              existing.input = block.input;
+              this.emit('chunk', {
+                type: 'tool_call',
+                content: '',
+                toolCall: existing,
+              });
+            }
+          }
         }
       }
     } else if (event.type === 'user') {

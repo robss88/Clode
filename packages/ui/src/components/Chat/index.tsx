@@ -760,8 +760,8 @@ function MessageBubble({
     );
   }
 
-  // Show restore on every user message that has a preceding message
-  const hasCheckpoint = isUser && !!previousMessage;
+  // Show restore on every user message (first message uses 'initial' checkpoint)
+  const hasCheckpoint = isUser;
 
   const canEdit = isUser && !!onEditAndContinue;
 
@@ -885,7 +885,7 @@ function MessageBubble({
                 );
               })()}
               {/* Restore checkpoint — always visible at bottom-right of user message (like Cursor) */}
-              {isUser && hasCheckpoint && onRestore && (
+              {!isFadedOut && isUser && hasCheckpoint && onRestore && (
                 <div className="flex justify-end mt-1.5 -mb-0.5">
                   <button
                     type="button"

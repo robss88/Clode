@@ -74,6 +74,27 @@ export class ClaudeService {
         this.postMessage({ type: 'claude:tool-start', data: toolCall });
       });
 
+      // Backup file tracking via tool:complete — input is guaranteed complete here
+      this.claudeManager.on('tool:complete', (toolCall, _result) => {
+        const toolName = toolCall.name?.toLowerCase();
+        const input = toolCall.input || {};
+        if ((toolName === 'edit' || toolName === 'write') && input.file_path) {
+          const filePath = this.resolveFilePath(String(input.file_path));
+          this.allTrackedFiles.add(filePath);
+          // If we missed the pre-modification snapshot (input was empty during tool_call),
+          // at least track the file. The file is already modified at this point.
+          if (!this.pendingFileSnapshots.has(filePath)) {
+            console.warn(`[Checkpoint] Missed pre-modification snapshot for ${filePath}, tracking post-modification state`);
+            try {
+              const content = fs.readFileSync(filePath, 'utf-8');
+              this.pendingFileSnapshots.set(filePath, { content });
+            } catch {
+              this.pendingFileSnapshots.set(filePath, { content: null });
+            }
+          }
+        }
+      });
+
       this.claudeManager.on('error', (error) => {
         this.postMessage({ type: 'claude:error', data: error.message || String(error) });
       });
@@ -297,6 +318,10 @@ export class ClaudeService {
   }
 
   // --- File-based checkpoint system ---
+  // Each checkpoint stores the CURRENT state of all tracked files at creation time.
+  // Checkpoint N = state after assistant turn N completed.
+  // Restoring to "before turn N" = restoring checkpoint N-1.
+  // "initial" checkpoint = state before any agent modifications.
 
   private resolveFilePath(filePath: string): string {
     return path.isAbsolute(filePath) ? filePath : path.join(this.workingDir, filePath);
@@ -317,30 +342,47 @@ export class ClaudeService {
       // File doesn't exist yet — record that
       this.pendingFileSnapshots.set(absolute, { content: null });
     }
+
+    // Create the "initial" checkpoint if this is the very first file modification
+    if (!this.fileCheckpoints.has('initial')) {
+      console.log('[Checkpoint] Creating initial checkpoint (pre-conversation state)');
+      const initialFiles = new Map<string, FileSnapshot>();
+      // Store the pre-modification state of this first file
+      const snap = this.pendingFileSnapshots.get(absolute);
+      if (snap) {
+        initialFiles.set(absolute, snap);
+      }
+      this.fileCheckpoints.set('initial', {
+        messageId: 'initial',
+        timestamp: Date.now() - 1, // Slightly before any real checkpoints
+        files: initialFiles,
+      });
+    } else {
+      // Update the initial checkpoint with pre-modification state of any newly tracked file
+      const initial = this.fileCheckpoints.get('initial')!;
+      if (!initial.files.has(absolute)) {
+        const snap = this.pendingFileSnapshots.get(absolute);
+        if (snap) {
+          initial.files.set(absolute, snap);
+        }
+      }
+    }
   }
 
   /**
    * Create a checkpoint after an assistant response.
-   * Stores the pre-modification state of all files touched during this turn,
-   * plus the current state of all previously tracked files.
+   * Stores the CURRENT state of all tracked files (post-modification).
    */
   async createFileCheckpoint(messageId: string): Promise<void> {
     const files = new Map<string, FileSnapshot>();
 
-    // Include pre-modification snapshots from this turn
-    for (const [filePath, snapshot] of this.pendingFileSnapshots) {
-      files.set(filePath, snapshot);
-    }
-
-    // Also include current state of files from previous turns that weren't touched this turn
+    // Read current state of ALL tracked files
     for (const filePath of this.allTrackedFiles) {
-      if (!files.has(filePath)) {
-        try {
-          const content = fs.readFileSync(filePath, 'utf-8');
-          files.set(filePath, { content });
-        } catch {
-          files.set(filePath, { content: null });
-        }
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        files.set(filePath, { content });
+      } catch {
+        files.set(filePath, { content: null });
       }
     }
 
@@ -350,6 +392,8 @@ export class ClaudeService {
       files,
     });
 
+    console.log(`[Checkpoint] Created checkpoint "${messageId}" with ${files.size} files`);
+
     // Clear pending snapshots for next turn
     this.pendingFileSnapshots.clear();
   }
@@ -357,24 +401,34 @@ export class ClaudeService {
   /** Restore files to the state captured at a checkpoint */
   async restoreFileCheckpoint(messageId: string): Promise<boolean> {
     const checkpoint = this.fileCheckpoints.get(messageId);
-    if (!checkpoint) return false;
+    if (!checkpoint) {
+      console.error(`[Checkpoint] No checkpoint found for "${messageId}"`);
+      return false;
+    }
 
+    console.log(`[Checkpoint] Restoring checkpoint "${messageId}" (${checkpoint.files.size} files)`);
+
+    let restoredCount = 0;
     for (const [filePath, snapshot] of checkpoint.files) {
       try {
         if (snapshot.content === null) {
           // File didn't exist at checkpoint time — delete it if it exists now
           if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
+            restoredCount++;
           }
         } else {
           // Restore file content
           fs.mkdirSync(path.dirname(filePath), { recursive: true });
           fs.writeFileSync(filePath, snapshot.content, 'utf-8');
+          restoredCount++;
         }
       } catch (err) {
         console.error(`[Checkpoint] Failed to restore ${filePath}:`, err);
       }
     }
+
+    console.log(`[Checkpoint] Restored ${restoredCount} files`);
 
     // Remove checkpoints that come after this one (since we're going back in time)
     const checkpointTimestamp = checkpoint.timestamp;

@@ -105,18 +105,9 @@ export default function App() {
       } else if (chunk.type === 'tool_result') {
         setCurrentToolCall(null);
       } else if (chunk.type === 'complete') {
-        const { streamingContent } = useAgentStore.getState();
-        if (streamingContent) {
-          addMessage({
-            id: `assistant-${Date.now()}`,
-            role: 'assistant',
-            content: streamingContent,
-            timestamp: Date.now(),
-          });
-        }
+        // Just clean up streaming state — the 'message' event handler
+        // will add the final message with its proper ID (used for checkpoints)
         setCurrentToolCall(null);
-        setStreaming(false);
-        clearStreamingContent();
       }
     });
 
@@ -301,25 +292,34 @@ export default function App() {
 
     const message = currentMessages[messageIndex];
 
-    // Find the assistant message with a checkpoint to restore to
+    // Each checkpoint stores post-modification state (after that turn completed).
+    // To undo "turn N", restore the checkpoint from the assistant message before user message N.
+    // For the first user message, use the 'initial' checkpoint.
     let checkpointMessageId: string | undefined;
     if (message.role === 'user') {
-      // Look for the previous assistant message's checkpoint
+      // Find the assistant message BEFORE this user message (the previous turn's checkpoint)
+      let foundAssistant = false;
       for (let i = messageIndex - 1; i >= 0; i--) {
         if (currentMessages[i].role === 'assistant') {
           checkpointMessageId = currentMessages[i].id;
+          foundAssistant = true;
           break;
         }
+      }
+      // If no previous assistant message, this is the first user message — use initial checkpoint
+      if (!foundAssistant) {
+        checkpointMessageId = 'initial';
       }
     } else if (message.role === 'assistant') {
       checkpointMessageId = message.id;
     }
 
-    // Restore file checkpoint if one exists
+    // Restore file checkpoint
     if (checkpointMessageId) {
-      bridge.restoreFileCheckpoint(checkpointMessageId).catch((err) => {
-        console.error('[Webview] File checkpoint restore failed:', err);
-      });
+      const success = await bridge.restoreFileCheckpoint(checkpointMessageId);
+      if (!success) {
+        console.error('[Webview] Checkpoint restore failed — no checkpoint found for:', checkpointMessageId);
+      }
     }
 
     // Fade out messages after this point
