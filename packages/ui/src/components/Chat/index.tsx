@@ -481,6 +481,7 @@ export function ChatInterface({
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
+            className="px-4"
           >
             <div className="message-content message-content-assistant">
               {streamingContent && <MarkdownContent content={streamingContent} />}
@@ -501,6 +502,7 @@ export function ChatInterface({
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
+            className="px-4"
           >
             <div className="message-content message-content-assistant">
               <div className="flex items-center gap-2 text-foreground-muted">
@@ -762,23 +764,6 @@ function MessageBubble({
 
   return (
     <>
-      {/* Checkpoint divider */}
-      {showCheckpointDivider && (
-        <div className="flex items-center justify-center py-2">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onRestore?.();
-            }}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-foreground-muted hover:text-foreground bg-background-secondary border border-border rounded-full transition-colors hover:border-foreground-muted"
-            title="Restore to this checkpoint"
-          >
-            <RotateCcw className="w-3 h-3" />
-            <span>Restore</span>
-          </button>
-        </div>
-      )}
-
       {/* Message — flat, no avatars, no bubbles */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -786,7 +771,12 @@ function MessageBubble({
         exit={{ opacity: 0, y: -10 }}
         className="group relative"
       >
-        <div className={clsx('message-content', isUser ? 'message-content-user font-medium text-foreground' : 'message-content-assistant')}>
+        <div className={clsx(
+          'message-content',
+          isUser
+            ? 'message-content-user font-medium text-foreground bg-background-secondary rounded-lg px-3 py-2'
+            : 'message-content-assistant'
+        )}>
           {(() => {
             if (isUser && message.context && message.context.length > 0) {
               const textContent = parseFileContext(message.content).textContent;
@@ -808,18 +798,34 @@ function MessageBubble({
             );
           })()}
 
-          {/* Edit button for user messages (visible on hover) */}
-          {isUser && onEdit && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit();
-              }}
-              className="absolute top-0 right-0 btn-icon p-1.5 bg-background-secondary border border-border shadow-lg hover:bg-background-hover opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Edit message"
-            >
-              <Pencil className="w-3.5 h-3.5 text-foreground-muted" />
-            </button>
+          {/* Edit & Restore buttons for user messages (visible on hover) */}
+          {isUser && (
+            <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {onRestore && showCheckpointDivider && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRestore();
+                  }}
+                  className="btn-icon p-1 bg-background-secondary border border-border shadow-lg hover:bg-background-hover"
+                  title="Restore to checkpoint"
+                >
+                  <RotateCcw className="w-3 h-3 text-foreground-muted" />
+                </button>
+              )}
+              {onEdit && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit();
+                  }}
+                  className="btn-icon p-1 bg-background-secondary border border-border shadow-lg hover:bg-background-hover"
+                  title="Edit message"
+                >
+                  <Pencil className="w-3 h-3 text-foreground-muted" />
+                </button>
+              )}
+            </div>
           )}
         </div>
 
