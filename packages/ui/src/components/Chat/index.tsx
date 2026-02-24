@@ -444,68 +444,87 @@ export function ChatInterface({
       <div className="flex-1 overflow-y-auto text-[13px]">
         <div className="py-4 space-y-3">
         <AnimatePresence initial={false}>
-          {messages.map((message, index) => {
-            // Determine if this message is after a restore point (should be faded)
-            // restoredAtMessageId is the user message we restored TO — everything AFTER it fades
+          {(() => {
+            // Group messages into sections: each section starts at a user message
+            // and includes all following non-user messages. This creates a containing
+            // block for CSS sticky so each sticky user message naturally unsticks
+            // when its section scrolls out of view.
+            const sections: { userIndex: number; messages: { message: Message; index: number }[] }[] = [];
+            let currentSection: { userIndex: number; messages: { message: Message; index: number }[] } | null = null;
+
+            messages.forEach((message, index) => {
+              if (message.role === 'user') {
+                currentSection = { userIndex: index, messages: [] };
+                sections.push(currentSection);
+              } else if (!currentSection) {
+                // Messages before first user message (e.g. system)
+                currentSection = { userIndex: -1, messages: [] };
+                sections.push(currentSection);
+              }
+              currentSection!.messages.push({ message, index });
+            });
+
             const restoredIndex = restoredAtMessageId
               ? messages.findIndex((m) => m.id === restoredAtMessageId)
               : -1;
-            const isFadedOut = restoredIndex >= 0 && index > restoredIndex;
 
-            // Determine if this message has a checkpoint to restore to
-            let hasCheckpoint = false;
-            if (message.role === 'user') {
-              // User message: has checkpoint if previous assistant response made code changes,
-              // OR if this is the first user message (has 'initial' checkpoint)
-              const prevAssistant = messages.slice(0, index).reverse().find(m => m.role === 'assistant');
-              hasCheckpoint = prevAssistant
-                ? (checkpointMessageIds?.has(prevAssistant.id) ?? false)
-                : true; // First user message uses 'initial' checkpoint
-            } else if (message.role === 'assistant') {
-              // Assistant message: has checkpoint if it made code changes
-              hasCheckpoint = checkpointMessageIds?.has(message.id) ?? false;
-            }
+            return sections.map((section) => (
+              <div key={section.messages[0].message.id + '-section'}>
+                {section.messages.map(({ message, index }) => {
+                  const isFadedOut = restoredIndex >= 0 && index > restoredIndex;
 
-            return (
-            <div
-              key={message.id}
-              ref={(el) => { if (el) messageRefs.current.set(message.id, el); }}
-              className={clsx(
-                'px-4',
-                message.role === 'user' && 'sticky top-0 z-10 bg-background py-3'
-              )}
-            >
-              <MessageBubble
-                message={message}
-                isLastMessage={index === messages.length - 1}
-                isFadedOut={isFadedOut}
-                hasCheckpoint={hasCheckpoint}
-                onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
-                onEditAndContinue={!isFadedOut && message.role === 'user' && onEditMessageAndContinue ? (newContent: string) => onEditMessageAndContinue(message.id, newContent) : undefined}
-              />
-              {/* Implement Plan button — shown on the last assistant message when in plan mode */}
-              {mode === 'plan' &&
-                !isStreaming &&
-                message.role === 'assistant' &&
-                index === messages.length - 1 &&
-                onImplementPlan && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex justify-center py-2"
-                  >
-                    <button
-                      onClick={() => onImplementPlan(message.content)}
-                      className="flex items-center gap-2 px-4 py-2 bg-foreground text-background hover:bg-foreground-secondary text-sm font-medium rounded-lg transition-colors"
+                  let hasCheckpoint = false;
+                  if (message.role === 'user') {
+                    const prevAssistant = messages.slice(0, index).reverse().find(m => m.role === 'assistant');
+                    hasCheckpoint = prevAssistant
+                      ? (checkpointMessageIds?.has(prevAssistant.id) ?? false)
+                      : true;
+                  } else if (message.role === 'assistant') {
+                    hasCheckpoint = checkpointMessageIds?.has(message.id) ?? false;
+                  }
+
+                  return (
+                    <div
+                      key={message.id}
+                      ref={(el) => { if (el) messageRefs.current.set(message.id, el); }}
+                      className={clsx(
+                        'px-4',
+                        message.role === 'user' && 'sticky top-0 z-10 bg-background py-3'
+                      )}
                     >
-                      <Play className="w-4 h-4" />
-                      Implement Plan
-                    </button>
-                  </motion.div>
-                )}
-            </div>
-          );
-          })}
+                      <MessageBubble
+                        message={message}
+                        isLastMessage={index === messages.length - 1}
+                        isFadedOut={isFadedOut}
+                        hasCheckpoint={hasCheckpoint}
+                        onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
+                        onEditAndContinue={!isFadedOut && message.role === 'user' && onEditMessageAndContinue ? (newContent: string) => onEditMessageAndContinue(message.id, newContent) : undefined}
+                      />
+                      {mode === 'plan' &&
+                        !isStreaming &&
+                        message.role === 'assistant' &&
+                        index === messages.length - 1 &&
+                        onImplementPlan && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="flex justify-center py-2"
+                          >
+                            <button
+                              onClick={() => onImplementPlan(message.content)}
+                              className="flex items-center gap-2 px-4 py-2 bg-foreground text-background hover:bg-foreground-secondary text-sm font-medium rounded-lg transition-colors"
+                            >
+                              <Play className="w-4 h-4" />
+                              Implement Plan
+                            </button>
+                          </motion.div>
+                        )}
+                    </div>
+                  );
+                })}
+              </div>
+            ));
+          })()}
         </AnimatePresence>
 
         {/* Streaming content or tool activity */}
