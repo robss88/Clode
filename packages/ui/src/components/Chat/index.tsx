@@ -40,14 +40,11 @@ interface ChatInterfaceProps {
   streamingContent?: string;
   currentToolCall?: ToolCall | null;
   fileTree?: FileNode | null;
-  isEditing?: boolean;
   restoredAtMessageId?: string | null;
   onSendMessage: (content: string, context?: ContextItem[]) => void;
   onInterrupt: () => void;
   onRestoreToMessage?: (messageId: string) => void;
-  onEditMessage?: (messageId: string) => void;
   onEditMessageAndContinue?: (messageId: string, newContent: string) => void;
-  onCancelEdit?: () => void;
   onReadFile?: (path: string) => Promise<string | null>;
   onImplementPlan?: (planContent: string) => void;
   onModelChange?: (model: string) => void;
@@ -81,13 +78,10 @@ export function ChatInterface({
   streamingContent = '',
   currentToolCall,
   fileTree,
-  isEditing,
   onSendMessage,
   onInterrupt,
   onRestoreToMessage,
-  onEditMessage,
   onEditMessageAndContinue,
-  onCancelEdit,
   onReadFile,
   onImplementPlan,
   onModelChange,
@@ -472,7 +466,6 @@ export function ChatInterface({
                 isLastMessage={index === messages.length - 1}
                 isFadedOut={isFadedOut}
                 onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
-                onEditAndRevert={!isFadedOut && message.role === 'user' && onEditMessage ? () => onEditMessage(message.id) : undefined}
                 onEditAndContinue={!isFadedOut && message.role === 'user' && onEditMessageAndContinue ? (newContent: string) => onEditMessageAndContinue(message.id, newContent) : undefined}
               />
               {/* Implement Plan button — shown on the last assistant message when in plan mode */}
@@ -540,21 +533,6 @@ export function ChatInterface({
         <div ref={messagesEndRef} />
         </div>
       </div>
-
-      {/* Edit cancel banner */}
-      {isEditing && (
-        <div className="flex items-center justify-between px-4 py-2 bg-warning-muted">
-          <span className="text-xs text-warning font-medium">Editing message — changes will be discarded</span>
-          <button
-            type="button"
-            onClick={onCancelEdit}
-            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-warning hover:text-foreground bg-background-hover rounded transition-colors"
-          >
-            <X className="w-3 h-3" />
-            Cancel
-          </button>
-        </div>
-      )}
 
       {/* Input area — unified container like Cursor */}
       <div className="px-3 py-2">
@@ -750,7 +728,6 @@ function MessageBubble({
   isLastMessage,
   isFadedOut,
   onRestore,
-  onEditAndRevert,
   onEditAndContinue,
 }: {
   message: Message;
@@ -758,7 +735,6 @@ function MessageBubble({
   isLastMessage?: boolean;
   isFadedOut?: boolean;
   onRestore?: () => void;
-  onEditAndRevert?: () => void;
   onEditAndContinue?: (newContent: string) => void;
 }) {
   const isUser = message.role === 'user';
@@ -784,12 +760,10 @@ function MessageBubble({
     );
   }
 
-  const hasCheckpoint =
-    isUser &&
-    previousMessage?.role === 'assistant' &&
-    !!previousMessage?.checkpointCommitHash;
+  // Show restore on every user message that has a preceding message
+  const hasCheckpoint = isUser && !!previousMessage;
 
-  const canEdit = isUser && (onEditAndRevert || onEditAndContinue);
+  const canEdit = isUser && !!onEditAndContinue;
 
   const startEditing = () => {
     if (!canEdit) return;
@@ -800,8 +774,9 @@ function MessageBubble({
       if (editRef.current) {
         editRef.current.focus();
         editRef.current.setSelectionRange(textContent.length, textContent.length);
-        editRef.current.style.height = 'auto';
-        editRef.current.style.height = `${editRef.current.scrollHeight}px`;
+        editRef.current.style.height = '40px';
+        const maxHeight = 240;
+        editRef.current.style.height = `${Math.min(editRef.current.scrollHeight, maxHeight)}px`;
       }
     }, 50);
   };
@@ -835,21 +810,24 @@ function MessageBubble({
         exit={{ opacity: 0, y: -10 }}
         className={clsx('group relative', isFadedOut && 'opacity-40')}
       >
-        {/* Inline editing mode */}
+        {/* Inline editing mode — matches bottom input styling */}
         {!isFadedOut && isInlineEditing ? (
-          <div className="bg-background-tertiary border border-foreground-muted rounded-lg overflow-hidden">
+          <div className="bg-background-tertiary border border-border-secondary rounded-lg focus-within:border-foreground-muted transition-colors">
             <textarea
               ref={editRef}
               value={editContent}
               onChange={(e) => {
                 setEditContent(e.target.value);
-                e.target.style.height = 'auto';
-                e.target.style.height = `${e.target.scrollHeight}px`;
+                e.target.style.height = '40px';
+                const maxHeight = 240;
+                e.target.style.height = `${Math.min(e.target.scrollHeight, maxHeight)}px`;
               }}
               onKeyDown={handleEditKeyDown}
-              className="w-full px-3 py-2 bg-transparent text-sm text-foreground focus:outline-none resize-none min-h-[40px]"
+              placeholder="Edit message..."
+              className="w-full px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-foreground-muted focus:outline-none resize-none"
+              style={{ height: '40px' }}
             />
-            <div className="flex items-center justify-end gap-2 px-3 py-1.5">
+            <div className="flex items-center px-1.5 pb-1.5">
               <button
                 type="button"
                 onClick={() => { setIsInlineEditing(false); setShowConfirmDialog(false); }}
@@ -857,13 +835,20 @@ function MessageBubble({
               >
                 Cancel
               </button>
+              <span className="flex-1" />
               <button
                 type="button"
                 onClick={handleEditSubmit}
                 disabled={!editContent.trim()}
-                className="px-3 py-1 text-xs bg-foreground text-background rounded-md hover:bg-foreground-secondary transition-colors disabled:opacity-50"
+                className={clsx(
+                  'w-7 h-7 flex items-center justify-center rounded-full transition-colors',
+                  editContent.trim()
+                    ? 'bg-foreground text-background hover:bg-foreground-secondary'
+                    : 'text-foreground-muted'
+                )}
+                title="Submit edit"
               >
-                Submit
+                <Send className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -939,7 +924,7 @@ function MessageBubble({
           className="mt-2 bg-background-tertiary border border-border-secondary rounded-lg p-3"
         >
           <p className="text-xs text-foreground-secondary mb-3">
-            Submitting from a previous message will clear the messages after this one.
+            This will clear all messages after this one.
           </p>
           <div className="flex items-center justify-end gap-2">
             <button
@@ -957,22 +942,9 @@ function MessageBubble({
                   setShowConfirmDialog(false);
                   setIsInlineEditing(false);
                 }}
-                className="px-3 py-1 text-xs border border-border rounded-md hover:bg-background-hover transition-colors"
-              >
-                Continue without reverting
-              </button>
-            )}
-            {onEditAndRevert && (
-              <button
-                type="button"
-                onClick={() => {
-                  onEditAndRevert();
-                  setShowConfirmDialog(false);
-                  setIsInlineEditing(false);
-                }}
                 className="px-3 py-1 text-xs bg-foreground text-background rounded-md hover:bg-foreground-secondary transition-colors"
               >
-                Continue and revert
+                Continue
               </button>
             )}
           </div>

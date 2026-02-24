@@ -20,7 +20,6 @@ export default function App() {
   const bridge = useBridge();
   const [fileTree, setFileTree] = useState<FileNode | null>(null);
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
-  const [editSnapshot, setEditSnapshot] = useState<{ messages: Message[]; headHash: string } | null>(null);
   const [restoredAtMessageId, setRestoredAtMessageId] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
 
@@ -112,7 +111,7 @@ export default function App() {
     });
 
     const cleanupMessage = bridge.onClaudeMessage(async (message) => {
-      const { clearStreamingContent, setCurrentToolCall, addMessage, setStreaming, updateMessage, streamingContent } = useAgentStore.getState();
+      const { clearStreamingContent, setCurrentToolCall, addMessage, setStreaming, streamingContent } = useAgentStore.getState();
 
       if (!message.content && streamingContent) {
         message.content = streamingContent;
@@ -123,21 +122,13 @@ export default function App() {
       addMessage(message);
       setStreaming(false);
 
-      // Auto-create checkpoint after each assistant response
-      const currentMessages = useAgentStore.getState().messages;
-      const checkpoint = await bridge.createCheckpoint(undefined, undefined, currentMessages, { skipIfEmpty: true });
-
-      const commitHash = checkpoint?.metadata?.commitSha || await bridge.getCurrentGitHead();
-      if (commitHash) {
-        updateMessage(message.id, { checkpointCommitHash: commitHash });
-      }
-
       // Auto-name the chat session
       const chatId = useChatSessionStore.getState().activeChatId;
       if (chatId) {
         const chat = useChatSessionStore.getState().sessions[chatId];
+        const allMessages = useAgentStore.getState().messages;
         if (chat && chat.messages.length === 0) {
-          const firstUser = currentMessages.find((m) => m.role === 'user');
+          const firstUser = allMessages.find((m: Message) => m.role === 'user');
           if (firstUser) {
             // Strip <file> tags and extract meaningful text
             const stripped = firstUser.content
@@ -187,7 +178,6 @@ export default function App() {
 
   // Send message (with slash command interception)
   const handleSendMessage = useCallback(async (content: string, context?: ContextItem[]) => {
-    setEditSnapshot(null);
     // If we were in a restored state, truncate faded messages before sending
     if (restoredAtMessageId) {
       const currentMessages = useAgentStore.getState().messages;
@@ -199,15 +189,11 @@ export default function App() {
     }
     const modeFlags = getModeFlags(useUIStore.getState().mode);
 
-    // Reattach branch if in detached HEAD (fire-and-forget)
-    bridge.reattachBranch();
-
     // Check for slash commands
     if (content.startsWith('/')) {
       const result = executeCommand(content, {
         onClearMessages: () => useAgentStore.getState().clearMessages(),
         onSendMessage: (prompt, options) => {
-          bridge.snapshotDirtyFiles(); // fire-and-forget
           setStreaming(true);
           const userMsg: Message = {
             id: Date.now().toString(),
@@ -243,7 +229,6 @@ export default function App() {
           return;
         }
         if (result.type === 'cli' && result.cliPrompt) {
-          bridge.snapshotDirtyFiles(); // fire-and-forget
           setStreaming(true);
           const userMsg: Message = {
             id: Date.now().toString(),
@@ -265,7 +250,6 @@ export default function App() {
     }
 
     // Normal message
-    bridge.snapshotDirtyFiles(); // fire-and-forget
     setStreaming(true);
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -295,77 +279,12 @@ export default function App() {
     setCurrentToolCall(null);
   }, [bridge, setStreaming, clearStreamingContent, setCurrentToolCall]);
 
-  // Restore to message — fades out subsequent messages (Cursor-style) instead of deleting them
-  const handleRestoreToMessage = useCallback(async (messageId: string) => {
-    const currentMessages = useAgentStore.getState().messages;
-    const messageIndex = currentMessages.findIndex((m) => m.id === messageId);
-    if (messageIndex === -1) return;
-
-    const message = currentMessages[messageIndex];
-    let checkpointHash: string | undefined;
-
-    if (message.role === 'user') {
-      for (let i = messageIndex - 1; i >= 0; i--) {
-        if (currentMessages[i].role === 'assistant' && currentMessages[i].checkpointCommitHash) {
-          checkpointHash = currentMessages[i].checkpointCommitHash;
-          break;
-        }
-      }
-    } else if (message.role === 'assistant') {
-      checkpointHash = message.checkpointCommitHash;
-    }
-
-    if (checkpointHash) {
-      await bridge.resetGitToCommit(checkpointHash);
-    }
-
-    // Fade out messages after this point instead of deleting
-    // The clicked message stays solid; everything AFTER it fades
+  // Restore to message — fades out subsequent messages (Cursor-style)
+  const handleRestoreToMessage = useCallback((messageId: string) => {
     setRestoredAtMessageId(messageId);
-  }, [bridge]);
+  }, []);
 
-  // Edit message
-  const handleEditMessage = useCallback(async (messageId: string) => {
-    const currentMessages = useAgentStore.getState().messages;
-    const messageIndex = currentMessages.findIndex((m) => m.id === messageId);
-    if (messageIndex === -1) return;
-
-    const message = currentMessages[messageIndex];
-    if (message.role !== 'user') return;
-
-    const editContent = message.content;
-    const currentHeadHash = await bridge.getCurrentGitHead();
-    setEditSnapshot({
-      messages: [...currentMessages],
-      headHash: currentHeadHash || '',
-    });
-
-    let checkpointHash: string | undefined;
-    for (let i = messageIndex - 1; i >= 0; i--) {
-      if (currentMessages[i].role === 'assistant' && currentMessages[i].checkpointCommitHash) {
-        checkpointHash = currentMessages[i].checkpointCommitHash;
-        break;
-      }
-    }
-
-    if (checkpointHash) {
-      try {
-        await bridge.resetGitToCommit(checkpointHash);
-      } catch (err) {
-        console.error('[Edit] Git reset failed:', err);
-      }
-    }
-
-    if (messageIndex > 0) {
-      useAgentStore.getState().truncateAfterMessage(currentMessages[messageIndex - 1].id);
-    } else {
-      useAgentStore.getState().clearMessages();
-    }
-
-    useAgentStore.getState().setDraftInput(editContent);
-  }, [bridge]);
-
-  // Edit message and continue without reverting git — truncates and resends
+  // Edit message and continue — truncates messages after this one and resends
   const handleEditMessageAndContinue = useCallback(async (messageId: string, newContent: string) => {
     const currentMessages = useAgentStore.getState().messages;
     const messageIndex = currentMessages.findIndex((m) => m.id === messageId);
@@ -382,21 +301,6 @@ export default function App() {
     // Send the edited content as a fresh message
     await handleSendMessage(newContent);
   }, [handleSendMessage]);
-
-  // Cancel edit
-  const handleCancelEdit = useCallback(async () => {
-    if (!editSnapshot) return;
-
-    useAgentStore.getState().setMessages(editSnapshot.messages);
-
-    if (editSnapshot.headHash) {
-      await bridge.resetGitToCommit(editSnapshot.headHash);
-      await bridge.reattachBranch();
-    }
-
-    useAgentStore.getState().setDraftInput('');
-    setEditSnapshot(null);
-  }, [bridge, editSnapshot]);
 
   // New chat on current branch
   const handleNewChat = useCallback(() => {
@@ -481,13 +385,10 @@ export default function App() {
           streamingContent={streamingContent}
           currentToolCall={currentToolCall}
           fileTree={fileTree}
-          isEditing={!!editSnapshot}
           onSendMessage={handleSendMessage}
           onInterrupt={handleInterrupt}
           onRestoreToMessage={handleRestoreToMessage}
-          onEditMessage={handleEditMessage}
           onEditMessageAndContinue={handleEditMessageAndContinue}
-          onCancelEdit={handleCancelEdit}
           restoredAtMessageId={restoredAtMessageId}
           onReadFile={(path) => bridge.readFile(path)}
           onImplementPlan={handleImplementPlan}
