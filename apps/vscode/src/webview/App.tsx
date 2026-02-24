@@ -336,11 +336,22 @@ export default function App() {
     }
   }, []);
 
-  // Edit message and continue — truncates messages after this one and resends
+  // Edit message and continue — restores checkpoint, truncates messages, then resends
   const handleEditMessageAndContinue = useCallback(async (messageId: string, newContent: string) => {
     const currentMessages = useAgentStore.getState().messages;
     const messageIndex = currentMessages.findIndex((m) => m.id === messageId);
     if (messageIndex === -1) return;
+
+    // Restore the checkpoint to undo code changes from this point forward
+    let checkpointId: string | undefined;
+    for (let i = messageIndex - 1; i >= 0; i--) {
+      if (currentMessages[i].role === 'assistant') {
+        checkpointId = currentMessages[i].id;
+        break;
+      }
+    }
+    if (!checkpointId) checkpointId = 'initial';
+    await bridge.restoreFileCheckpoint(checkpointId).catch(() => {});
 
     // Truncate everything from this message onwards
     if (messageIndex > 0) {
@@ -351,7 +362,7 @@ export default function App() {
 
     setRestoredAtMessageId(null);
     await handleSendMessage(newContent);
-  }, [handleSendMessage]);
+  }, [handleSendMessage, bridge]);
 
   // New chat on current branch
   const handleNewChat = useCallback(() => {
