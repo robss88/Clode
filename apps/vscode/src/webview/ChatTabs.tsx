@@ -35,7 +35,7 @@ export function ChatTabs({
             <div
               key={chat.id}
               className={clsx(
-                'group flex items-center gap-1 min-w-0 max-w-[160px] px-3 py-1.5 text-xs cursor-pointer transition-colors border-r border-border',
+                'group flex items-center gap-1 min-w-0 max-w-[160px] px-3 py-1.5 text-xs cursor-pointer transition-colors',
                 isActive
                   ? 'bg-background text-foreground'
                   : 'text-foreground-muted hover:text-foreground hover:bg-background-hover'

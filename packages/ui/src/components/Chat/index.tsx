@@ -442,7 +442,7 @@ export function ChatInterface({
               ref={(el) => { if (el) messageRefs.current.set(message.id, el); }}
               className={clsx(
                 'px-4',
-                message.role === 'user' && 'sticky top-0 z-10 bg-background py-3 cursor-pointer border-b border-border'
+                message.role === 'user' && 'sticky top-0 z-10 bg-background py-3 cursor-pointer'
               )}
               onClick={message.role === 'user' ? () => scrollToMessage(message.id) : undefined}
             >
@@ -764,8 +764,7 @@ function MessageBubble({
     <>
       {/* Checkpoint divider */}
       {showCheckpointDivider && (
-        <div className="flex items-center gap-3 py-2">
-          <div className="flex-1 h-px bg-border" />
+        <div className="flex items-center justify-center py-2">
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -777,7 +776,6 @@ function MessageBubble({
             <RotateCcw className="w-3 h-3" />
             <span>Restore</span>
           </button>
-          <div className="flex-1 h-px bg-border" />
         </div>
       )}
 
