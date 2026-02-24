@@ -884,15 +884,35 @@ function MessageBubble({
                   </>
                 );
               })()}
-
-              {/* Edit hint on hover */}
-              {canEdit && (
-                <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Pencil className="w-3 h-3 text-foreground-muted" />
-                </div>
-              )}
             </div>
 
+            {/* Hover action toolbar for user messages — edit + restore checkpoint */}
+            {isUser && (canEdit || (hasCheckpoint && onRestore)) && (
+              <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={startEditing}
+                    className="flex items-center gap-1 px-2 py-1 text-[11px] text-foreground-muted hover:text-foreground hover:bg-background-hover rounded transition-colors"
+                    title="Edit message"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    Edit
+                  </button>
+                )}
+                {hasCheckpoint && onRestore && (
+                  <button
+                    type="button"
+                    onClick={onRestore}
+                    className="flex items-center gap-1 px-2 py-1 text-[11px] text-foreground-muted hover:text-foreground hover:bg-background-hover rounded transition-colors"
+                    title="Restore code to this checkpoint"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Restore checkpoint
+                  </button>
+                )}
+              </div>
+            )}
           </>
         )}
 
@@ -902,13 +922,14 @@ function MessageBubble({
         )}
       </motion.div>
 
-      {/* Restore checkpoint link — outside faded container so it's always fully visible & clickable */}
-      {isUser && hasCheckpoint && onRestore && (
+      {/* Restore checkpoint — always visible outside faded container */}
+      {isFadedOut && isUser && hasCheckpoint && onRestore && (
         <div className="mt-1">
           <button
             type="button"
             onClick={onRestore}
-            className="flex items-center gap-1 text-[11px] text-foreground-muted hover:text-foreground transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-[11px] text-foreground-muted hover:text-foreground hover:bg-background-hover rounded transition-colors"
+            title="Restore code to this checkpoint"
           >
             <RotateCcw className="w-3 h-3" />
             Restore checkpoint
