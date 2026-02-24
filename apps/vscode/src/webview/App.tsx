@@ -1,17 +1,17 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import type { ContextItem, FileNode, Message } from '@claude-agent/core';
 import {
   ChatInterface,
-  useAgentStore,
-  useUIStore,
-  useChatSessionStore,
+  configureStorage,
   executeCommand,
   getModeFlags,
-  configureStorage,
+  useAgentStore,
+  useChatSessionStore,
+  useUIStore,
 } from '@claude-agent/ui';
-import type { Message, FileNode, ContextItem } from '@claude-agent/core';
+import { useCallback, useEffect, useState } from 'react';
 import { useBridge } from './bridge/context';
-import { ChatTabs } from './ChatTabs';
 import { vscodeStorage } from './bridge/vscode-bridge';
+import { ChatTabs } from './ChatTabs';
 
 // Configure Zustand persistence to use VS Code webview state (survives reloads)
 configureStorage(vscodeStorage);
@@ -34,9 +34,13 @@ export default function App() {
     setCurrentToolCall,
   } = useAgentStore();
 
-  // Initialize: wait for extension host to be ready via init:state event
+  // Initialize: request init state from extension host (handles race condition)
   useEffect(() => {
-    const cleanup = bridge.onInitState(async (state: any) => {
+    let didInit = false;
+
+    async function handleInitState(state: any) {
+      if (didInit) return;
+      didInit = true;
       try {
         const branchName = state.branch || 'main';
         setCurrentBranch(branchName);
@@ -47,7 +51,6 @@ export default function App() {
         const branchChats = store.getChatsForBranch(branchName);
         let chat;
         if (persistedId && store.sessions[persistedId]) {
-          // Restore the last active chat from the persisted store
           chat = store.sessions[persistedId];
         } else if (branchChats.length > 0) {
           chat = branchChats[0];
@@ -71,9 +74,16 @@ export default function App() {
         setIsReady(true);
       } catch (err) {
         console.error('[Webview] Init failed:', err);
-        setIsReady(true); // Show UI even on error
+        setIsReady(true);
       }
-    });
+    }
+
+    // Listen for broadcast (fast path)
+    const cleanup = bridge.onInitState(handleInitState);
+
+    // Request init state (handles race condition where broadcast was missed)
+    bridge.requestInitState().then(handleInitState).catch(() => {});
+
     return cleanup;
   }, [bridge]);
 
@@ -122,6 +132,11 @@ export default function App() {
       addMessage(message);
       setStreaming(false);
 
+      // Create file checkpoint after each assistant response (snapshots modified files)
+      bridge.createFileCheckpoint(message.id).catch((err) => {
+        console.error('[Webview] File checkpoint failed:', err);
+      });
+
       // Auto-name the chat session
       const chatId = useChatSessionStore.getState().activeChatId;
       if (chatId) {
@@ -130,7 +145,6 @@ export default function App() {
         if (chat && chat.messages.length === 0) {
           const firstUser = allMessages.find((m: Message) => m.role === 'user');
           if (firstUser) {
-            // Strip <file> tags and extract meaningful text
             const stripped = firstUser.content
               .replace(/<file\s+path="[^"]*">\n?[\s\S]*?\n?<\/file>/g, '')
               .replace(/^\n+/, '')
@@ -279,8 +293,36 @@ export default function App() {
     setCurrentToolCall(null);
   }, [bridge, setStreaming, clearStreamingContent, setCurrentToolCall]);
 
-  // Restore to message — fades out subsequent messages (Cursor-style)
-  const handleRestoreToMessage = useCallback((messageId: string) => {
+  // Restore to message — restores file checkpoint and fades subsequent messages
+  const handleRestoreToMessage = useCallback(async (messageId: string) => {
+    const currentMessages = useAgentStore.getState().messages;
+    const messageIndex = currentMessages.findIndex((m) => m.id === messageId);
+    if (messageIndex === -1) return;
+
+    const message = currentMessages[messageIndex];
+
+    // Find the assistant message with a checkpoint to restore to
+    let checkpointMessageId: string | undefined;
+    if (message.role === 'user') {
+      // Look for the previous assistant message's checkpoint
+      for (let i = messageIndex - 1; i >= 0; i--) {
+        if (currentMessages[i].role === 'assistant') {
+          checkpointMessageId = currentMessages[i].id;
+          break;
+        }
+      }
+    } else if (message.role === 'assistant') {
+      checkpointMessageId = message.id;
+    }
+
+    // Restore file checkpoint if one exists
+    if (checkpointMessageId) {
+      bridge.restoreFileCheckpoint(checkpointMessageId).catch((err) => {
+        console.error('[Webview] File checkpoint restore failed:', err);
+      });
+    }
+
+    // Fade out messages after this point
     setRestoredAtMessageId(messageId);
   }, []);
 
@@ -298,35 +340,27 @@ export default function App() {
     }
 
     setRestoredAtMessageId(null);
-    // Send the edited content as a fresh message
     await handleSendMessage(newContent);
   }, [handleSendMessage]);
 
   // New chat on current branch
   const handleNewChat = useCallback(() => {
-    // Save current messages to active chat
     const currentId = useChatSessionStore.getState().activeChatId;
     if (currentId) {
       useChatSessionStore.getState().saveMessages(currentId, useAgentStore.getState().messages);
     }
-    // Create new chat
     const branch = currentBranch || 'main';
-    const chatCount = useChatSessionStore.getState().getChatsForBranch(branch).length;
     const newChat = useChatSessionStore.getState().createChat(branch, 'New Chat');
-    // Clear messages
     useAgentStore.getState().clearMessages();
-    // Notify extension host
     bridge.switchChatSession(newChat.id);
   }, [bridge, currentBranch]);
 
   // Switch to an existing chat
   const handleSwitchChat = useCallback((chatId: string) => {
-    // Save current messages to active chat
     const currentId = useChatSessionStore.getState().activeChatId;
     if (currentId) {
       useChatSessionStore.getState().saveMessages(currentId, useAgentStore.getState().messages);
     }
-    // Load target chat messages
     const targetChat = useChatSessionStore.getState().sessions[chatId];
     if (targetChat) {
       useAgentStore.getState().setMessages(targetChat.messages);

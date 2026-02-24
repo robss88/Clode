@@ -55,6 +55,16 @@ export class MessageHandler {
           result = true;
           break;
 
+        // File-based checkpoint operations (no git)
+        case 'checkpoint:create-file':
+          await this.service.createFileCheckpoint(data?.messageId);
+          result = true;
+          break;
+
+        case 'checkpoint:restore-file':
+          result = await this.service.restoreFileCheckpoint(data?.messageId);
+          break;
+
         // Git operations
         case 'git:current-head':
           result = await this.service.getCurrentGitHead();

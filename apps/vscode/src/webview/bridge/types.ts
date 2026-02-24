@@ -39,6 +39,13 @@ export interface PlatformBridge {
   getFileTree(): Promise<any>;
   openFile(path: string): Promise<void>;
 
+  // Init
+  requestInitState(): Promise<InitState>;
+
+  // File checkpoints (no git)
+  createFileCheckpoint(messageId: string): Promise<void>;
+  restoreFileCheckpoint(messageId: string): Promise<boolean>;
+
   // Events (return cleanup function)
   onClaudeChunk(cb: (chunk: any) => void): () => void;
   onClaudeMessage(cb: (msg: any) => void): () => void;

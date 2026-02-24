@@ -71,6 +71,9 @@ function on(eventType: string, callback: Function): () => void {
 
 export function createVSCodeBridge(): PlatformBridge {
   return {
+    // Init
+    requestInitState: () => invoke('init:request'),
+
     // Claude
     sendMessage: (content, options) => invoke('claude:send', { content, options }),
     setModel: (model) => invoke('claude:set-model', { model }),
@@ -96,6 +99,10 @@ export function createVSCodeBridge(): PlatformBridge {
     pushToRemote: () => invoke('git:push'),
     getGitStatus: () => invoke('git:status'),
     gitCommitAll: (message) => invoke('git:commit-all', { message }),
+
+    // File checkpoints (no git)
+    createFileCheckpoint: (messageId) => invoke('checkpoint:create-file', { messageId }),
+    restoreFileCheckpoint: (messageId) => invoke('checkpoint:restore-file', { messageId }),
 
     // Chat sessions
     switchChatSession: (id, claudeSessionId) => invoke('chat:switch', { chatSessionId: id, claudeSessionId }),
