@@ -43,7 +43,7 @@ export interface PlatformBridge {
   requestInitState(): Promise<InitState>;
 
   // File checkpoints (no git)
-  createFileCheckpoint(messageId: string): Promise<void>;
+  createFileCheckpoint(messageId: string): Promise<boolean>;
   restoreFileCheckpoint(messageId: string): Promise<boolean>;
 
   // Events (return cleanup function)

@@ -41,6 +41,7 @@ interface ChatInterfaceProps {
   currentToolCall?: ToolCall | null;
   fileTree?: FileNode | null;
   restoredAtMessageId?: string | null;
+  checkpointMessageIds?: Set<string>;
   onSendMessage: (content: string, context?: ContextItem[]) => void;
   onInterrupt: () => void;
   onRestoreToMessage?: (messageId: string) => void;
@@ -86,6 +87,7 @@ export function ChatInterface({
   onImplementPlan,
   onModelChange,
   restoredAtMessageId,
+  checkpointMessageIds,
 }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
   const [showMentions, setShowMentions] = useState(false);
@@ -451,6 +453,20 @@ export function ChatInterface({
               : -1;
             const isFadedOut = restoredIndex >= 0 && index > restoredIndex;
 
+            // Determine if this message has a checkpoint to restore to
+            let hasCheckpoint = false;
+            if (message.role === 'user') {
+              // User message: has checkpoint if previous assistant response made code changes,
+              // OR if this is the first user message (has 'initial' checkpoint)
+              const prevAssistant = messages.slice(0, index).reverse().find(m => m.role === 'assistant');
+              hasCheckpoint = prevAssistant
+                ? (checkpointMessageIds?.has(prevAssistant.id) ?? false)
+                : true; // First user message uses 'initial' checkpoint
+            } else if (message.role === 'assistant') {
+              // Assistant message: has checkpoint if it made code changes
+              hasCheckpoint = checkpointMessageIds?.has(message.id) ?? false;
+            }
+
             return (
             <div
               key={message.id}
@@ -462,9 +478,9 @@ export function ChatInterface({
             >
               <MessageBubble
                 message={message}
-                previousMessage={index > 0 ? messages[index - 1] : undefined}
                 isLastMessage={index === messages.length - 1}
                 isFadedOut={isFadedOut}
+                hasCheckpoint={hasCheckpoint}
                 onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
                 onEditAndContinue={!isFadedOut && message.role === 'user' && onEditMessageAndContinue ? (newContent: string) => onEditMessageAndContinue(message.id, newContent) : undefined}
               />
@@ -724,20 +740,21 @@ function FileContextPills({ files }: { files: Array<{ path: string; name: string
 
 function MessageBubble({
   message,
-  previousMessage,
   isLastMessage,
   isFadedOut,
+  hasCheckpoint,
   onRestore,
   onEditAndContinue,
 }: {
   message: Message;
-  previousMessage?: Message;
   isLastMessage?: boolean;
   isFadedOut?: boolean;
+  hasCheckpoint?: boolean;
   onRestore?: () => void;
   onEditAndContinue?: (newContent: string) => void;
 }) {
   const isUser = message.role === 'user';
+  const isAssistant = message.role === 'assistant';
   const isSystem = message.role === 'system';
   const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
@@ -759,9 +776,6 @@ function MessageBubble({
       </motion.div>
     );
   }
-
-  // Show restore on every user message (first message uses 'initial' checkpoint)
-  const hasCheckpoint = isUser;
 
   const canEdit = isUser && !!onEditAndContinue;
 
@@ -923,9 +937,9 @@ function MessageBubble({
         )}
       </motion.div>
 
-      {/* Restore checkpoint — always visible outside faded container */}
-      {isFadedOut && isUser && hasCheckpoint && onRestore && (
-        <div className="mt-1">
+      {/* Restore checkpoint — always visible outside faded container (for both user and assistant messages) */}
+      {isFadedOut && hasCheckpoint && onRestore && (
+        <div className={clsx('mt-1', isAssistant && 'flex justify-end')}>
           <button
             type="button"
             onClick={onRestore}

@@ -23,6 +23,7 @@ export class ClaudeService {
   private fileCheckpoints = new Map<string, FileCheckpoint>();
   private allTrackedFiles = new Set<string>();
   private pendingFileSnapshots = new Map<string, FileSnapshot>(); // pre-modification snapshots for current turn
+  private filesModifiedThisTurn = false; // tracks if the current turn actually modified files
 
   constructor(
     private workingDir: string,
@@ -59,6 +60,7 @@ export class ClaudeService {
           const toolName = chunk.toolCall.name?.toLowerCase();
           const input = chunk.toolCall.input || {};
           if ((toolName === 'edit' || toolName === 'write') && input.file_path) {
+            this.filesModifiedThisTurn = true;
             this.snapshotFileBeforeModification(String(input.file_path));
           }
         }
@@ -79,6 +81,7 @@ export class ClaudeService {
         const toolName = toolCall.name?.toLowerCase();
         const input = toolCall.input || {};
         if ((toolName === 'edit' || toolName === 'write') && input.file_path) {
+          this.filesModifiedThisTurn = true;
           const filePath = this.resolveFilePath(String(input.file_path));
           this.allTrackedFiles.add(filePath);
           // If we missed the pre-modification snapshot (input was empty during tool_call),
@@ -371,9 +374,18 @@ export class ClaudeService {
 
   /**
    * Create a checkpoint after an assistant response.
-   * Stores the CURRENT state of all tracked files (post-modification).
+   * Only creates if files were actually modified this turn.
+   * Returns true if checkpoint was created, false if skipped.
    */
-  async createFileCheckpoint(messageId: string): Promise<void> {
+  async createFileCheckpoint(messageId: string): Promise<boolean> {
+    // Skip checkpoint creation if no files were modified this turn
+    if (!this.filesModifiedThisTurn) {
+      console.log(`[Checkpoint] Skipping checkpoint "${messageId}" — no files modified`);
+      this.pendingFileSnapshots.clear();
+      this.filesModifiedThisTurn = false;
+      return false;
+    }
+
     const files = new Map<string, FileSnapshot>();
 
     // Read current state of ALL tracked files
@@ -396,6 +408,8 @@ export class ClaudeService {
 
     // Clear pending snapshots for next turn
     this.pendingFileSnapshots.clear();
+    this.filesModifiedThisTurn = false;
+    return true;
   }
 
   /** Restore files to the state captured at a checkpoint */
@@ -430,14 +444,7 @@ export class ClaudeService {
 
     console.log(`[Checkpoint] Restored ${restoredCount} files`);
 
-    // Remove checkpoints that come after this one (since we're going back in time)
-    const checkpointTimestamp = checkpoint.timestamp;
-    for (const [id, cp] of this.fileCheckpoints) {
-      if (cp.timestamp > checkpointTimestamp) {
-        this.fileCheckpoints.delete(id);
-      }
-    }
-
+    // Keep all checkpoints (don't delete future ones) — allows forward navigation
     return true;
   }
 

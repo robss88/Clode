@@ -21,6 +21,7 @@ export default function App() {
   const [fileTree, setFileTree] = useState<FileNode | null>(null);
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [restoredAtMessageId, setRestoredAtMessageId] = useState<string | null>(null);
+  const [checkpointMessageIds, setCheckpointMessageIds] = useState<Set<string>>(new Set());
   const [isReady, setIsReady] = useState(false);
 
   const {
@@ -123,8 +124,12 @@ export default function App() {
       addMessage(message);
       setStreaming(false);
 
-      // Create file checkpoint after each assistant response (snapshots modified files)
-      bridge.createFileCheckpoint(message.id).catch((err) => {
+      // Create file checkpoint after each assistant response (only if files were modified)
+      bridge.createFileCheckpoint(message.id).then((created) => {
+        if (created) {
+          setCheckpointMessageIds((prev) => new Set([...prev, message.id]));
+        }
+      }).catch((err) => {
         console.error('[Webview] File checkpoint failed:', err);
       });
 
@@ -322,8 +327,13 @@ export default function App() {
       }
     }
 
-    // Fade out messages after this point
-    setRestoredAtMessageId(messageId);
+    // If restoring to the last message, clear the restore state (unfade everything)
+    if (messageIndex === currentMessages.length - 1) {
+      setRestoredAtMessageId(null);
+    } else {
+      // Fade out messages after this point
+      setRestoredAtMessageId(messageId);
+    }
   }, []);
 
   // Edit message and continue — truncates messages after this one and resends
@@ -419,6 +429,7 @@ export default function App() {
           streamingContent={streamingContent}
           currentToolCall={currentToolCall}
           fileTree={fileTree}
+          checkpointMessageIds={checkpointMessageIds}
           onSendMessage={handleSendMessage}
           onInterrupt={handleInterrupt}
           onRestoreToMessage={handleRestoreToMessage}
