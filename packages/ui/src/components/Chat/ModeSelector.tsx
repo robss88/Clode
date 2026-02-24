@@ -51,7 +51,7 @@ export function ModeSelector({ mode, onModeChange }: ModeSelectorProps) {
     <div ref={ref} className="relative">
       {/* Dropdown (opens upward) */}
       {isOpen && (
-        <div className="absolute bottom-full left-0 mb-1 w-64 bg-background-secondary border border-border rounded-lg shadow-xl z-30 overflow-hidden">
+        <div className="absolute bottom-full left-0 mb-1 w-64 bg-background-tertiary border border-border-secondary rounded-lg shadow-xl z-30 overflow-hidden">
           <div className="p-1">
             {MODE_ORDER.map((modeId) => {
               const def = MODES[modeId];
@@ -68,7 +68,7 @@ export function ModeSelector({ mode, onModeChange }: ModeSelectorProps) {
                   className={clsx(
                     'w-full flex items-center gap-3 px-3 py-2 rounded text-left transition-colors',
                     isActive
-                      ? 'bg-background-hover text-foreground'
+                      ? 'bg-background-active text-foreground hover:bg-background-active'
                       : 'hover:bg-background-hover text-foreground'
                   )}
                 >

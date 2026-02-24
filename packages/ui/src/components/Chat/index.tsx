@@ -543,7 +543,7 @@ export function ChatInterface({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
-                className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto bg-background-secondary border border-border rounded-lg shadow-xl z-20"
+                className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto bg-background-tertiary border border-border-secondary rounded-lg shadow-xl z-20"
               >
                 <div className="p-1">
                   <div className="px-2 py-1 text-xs text-foreground-muted">Commands</div>
@@ -556,7 +556,7 @@ export function ChatInterface({
                       className={clsx(
                         'w-full flex items-center gap-3 px-2 py-1.5 text-sm rounded text-left transition-colors',
                         index === slashIndex
-                          ? 'bg-background-hover text-foreground'
+                          ? 'bg-background-active text-foreground'
                           : 'hover:bg-background-hover'
                       )}
                     >
@@ -580,7 +580,7 @@ export function ChatInterface({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
-                className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto bg-background-secondary border border-border rounded-lg shadow-xl z-20"
+                className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto bg-background-tertiary border border-border-secondary rounded-lg shadow-xl z-20"
               >
                 <div className="p-1">
                   <div className="px-2 py-1 text-xs text-foreground-muted">
@@ -594,7 +594,7 @@ export function ChatInterface({
                       className={clsx(
                         'w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded text-left transition-colors',
                         index === mentionIndex
-                          ? 'bg-background-hover text-foreground'
+                          ? 'bg-background-active text-foreground'
                           : 'hover:bg-background-hover'
                       )}
                     >
