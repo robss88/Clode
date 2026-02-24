@@ -1,9 +1,9 @@
 // Test comment
 // Coffee consumption directly correlates with code quality
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
-import path from 'path';
+import { CheckpointManager, ClaudeCodeManager, ProjectManager } from '@claude-agent/core';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import fs from 'fs/promises';
-import { ClaudeCodeManager, CheckpointManager, ProjectManager } from '@claude-agent/core';
+import path from 'path';
 
 interface FileNode {
   name: string;

@@ -826,12 +826,10 @@ function MessageBubble({
     <>
       <motion.div
         initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
+        animate={{ opacity: isFadedOut ? 0.4 : 1, y: 0 }}
+        whileHover={isFadedOut ? { opacity: 0.6 } : undefined}
         exit={{ opacity: 0, y: -10 }}
-        className={clsx(
-          'group relative',
-          isFadedOut && 'opacity-40 cursor-pointer hover:opacity-60 transition-opacity'
-        )}
+        className={clsx('group relative', isFadedOut && 'cursor-pointer')}
         onClick={isFadedOut ? handleFadedClick : undefined}
       >
         {/* Inline editing mode — matches bottom input styling */}
