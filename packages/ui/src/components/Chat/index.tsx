@@ -133,14 +133,6 @@ export function ChatInterface({
     }
   }, [draftInput, setDraftInput]);
 
-  // Find the latest user message for the sticky header
-  const lastUserMessage = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') return messages[i];
-    }
-    return null;
-  }, [messages]);
-
   const scrollToMessage = useCallback((messageId: string) => {
     const el = messageRefs.current.get(messageId);
     if (el) {
@@ -442,23 +434,17 @@ export function ChatInterface({
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto text-[13px]">
-        {/* Sticky latest user prompt */}
-        {lastUserMessage && (
-          <div
-            className="sticky top-0 z-10 bg-background/90 backdrop-blur-sm px-4 py-2 border-b border-border cursor-pointer hover:bg-background-hover transition-colors"
-            onClick={() => scrollToMessage(lastUserMessage.id)}
-          >
-            <p className="text-xs text-foreground-secondary truncate">
-              {parseFileContext(lastUserMessage.content).textContent}
-            </p>
-          </div>
-        )}
-        <div className="px-4 py-6 space-y-3">
+        <div className="py-4 space-y-3">
         <AnimatePresence initial={false}>
           {messages.map((message, index) => (
             <div
               key={message.id}
               ref={(el) => { if (el) messageRefs.current.set(message.id, el); }}
+              className={clsx(
+                'px-4',
+                message.role === 'user' && 'sticky top-0 z-10 bg-background py-3 cursor-pointer border-b border-border'
+              )}
+              onClick={message.role === 'user' ? () => scrollToMessage(message.id) : undefined}
             >
               <MessageBubble
                 message={message}
@@ -802,7 +788,7 @@ function MessageBubble({
         exit={{ opacity: 0, y: -10 }}
         className="group relative"
       >
-        <div className={clsx('message-content', isUser ? 'message-content-user' : 'message-content-assistant')}>
+        <div className={clsx('message-content', isUser ? 'message-content-user font-medium text-foreground' : 'message-content-assistant')}>
           {(() => {
             if (isUser && message.context && message.context.length > 0) {
               const textContent = parseFileContext(message.content).textContent;
