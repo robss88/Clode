@@ -97,6 +97,31 @@ export class ClaudeAgentViewProvider {
 
     // Handle messages from webview — wait for init before processing
     this._panel.webview.onDidReceiveMessage(async (msg) => {
+      // Handle init:request — webview asking for init state (race condition fallback)
+      if (msg.type === 'init:request') {
+        if (!this.isReady && this.initPromise) {
+          await this.initPromise;
+        }
+        const branch = await this.service?.getCurrentGitBranch();
+        const initState = {
+          workspacePath: this._workingDir,
+          branch: branch || null,
+          activeChatSessionId: null,
+          isStreaming: false,
+        };
+        if (this._panel) {
+          if (msg.requestId) {
+            this._panel.webview.postMessage({
+              type: 'init:request',
+              requestId: msg.requestId,
+              data: initState,
+            });
+          }
+          this._panel.webview.postMessage({ type: 'init:state', data: initState });
+        }
+        return;
+      }
+
       if (!this.isReady && this.initPromise) {
         await this.initPromise;
       }
