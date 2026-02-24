@@ -45,6 +45,7 @@ interface ChatInterfaceProps {
   onInterrupt: () => void;
   onRestoreToMessage?: (messageId: string) => void;
   onEditMessage?: (messageId: string) => void;
+  onEditMessageAndContinue?: (messageId: string, newContent: string) => void;
   onCancelEdit?: () => void;
   onReadFile?: (path: string) => Promise<string | null>;
   onImplementPlan?: (planContent: string) => void;
@@ -84,6 +85,7 @@ export function ChatInterface({
   onInterrupt,
   onRestoreToMessage,
   onEditMessage,
+  onEditMessageAndContinue,
   onCancelEdit,
   onReadFile,
   onImplementPlan,
@@ -172,6 +174,15 @@ export function ChatInterface({
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Auto-resize textarea to fit content (max ~12 lines)
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = '40px';
+    const maxHeight = 240; // ~12 lines at 20px line height
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+  }, [input]);
 
   // Scroll mention list item into view
   useEffect(() => {
@@ -440,17 +451,20 @@ export function ChatInterface({
             <div
               key={message.id}
               ref={(el) => { if (el) messageRefs.current.set(message.id, el); }}
-              className={clsx(
-                'px-4',
-                message.role === 'user' && 'sticky top-0 z-10 bg-background py-3 cursor-pointer'
-              )}
-              onClick={message.role === 'user' ? () => scrollToMessage(message.id) : undefined}
+              className="px-4"
             >
               <MessageBubble
                 message={message}
                 previousMessage={index > 0 ? messages[index - 1] : undefined}
+                isLastMessage={index === messages.length - 1}
                 onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
-                onEdit={message.role === 'user' && onEditMessage ? () => onEditMessage(message.id) : undefined}
+                onEditAndRevert={message.role === 'user' && onEditMessage ? (newContent: string) => {
+                  // Set draft input to the edited content, then trigger the revert-based edit flow
+                  onEditMessage(message.id);
+                } : undefined}
+                onEditAndContinue={message.role === 'user' && onEditMessageAndContinue ? (newContent: string) => {
+                  onEditMessageAndContinue(message.id, newContent);
+                } : undefined}
               />
               {/* Implement Plan button — shown on the last assistant message when in plan mode */}
               {mode === 'plan' &&
@@ -619,51 +633,20 @@ export function ChatInterface({
               </div>
             )}
 
-            <div className="relative">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                placeholder="Message, @ for context, / for commands"
-                disabled={isStreaming}
-                rows={1}
-                className="w-full px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-foreground-muted focus:outline-none resize-none min-h-[40px] max-h-[200px]"
-                style={{
-                  height: 'auto',
-                  minHeight: '40px',
-                }}
-              />
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                {isStreaming ? (
-                  <button
-                    type="button"
-                    onClick={onInterrupt}
-                    className="p-1.5 rounded-md text-error hover:bg-background-hover transition-colors"
-                    title="Stop generation"
-                  >
-                    <Square className="w-3.5 h-3.5" />
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={!input.trim()}
-                    className={clsx(
-                      'p-1.5 rounded-md transition-colors',
-                      input.trim()
-                        ? 'bg-foreground text-background hover:bg-foreground-secondary'
-                        : 'text-foreground-muted'
-                    )}
-                    title="Send message"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Message, @ for context, / for commands"
+              disabled={isStreaming}
+              rows={1}
+              className="w-full px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-foreground-muted focus:outline-none resize-none"
+              style={{ height: '40px' }}
+            />
 
-            {/* Mode/Model selectors — inside the input container */}
-            <div className="flex items-center gap-1 px-1.5 pb-1.5">
+            {/* Bottom bar: mode/model selectors + send button */}
+            <div className="flex items-center px-1.5 pb-1.5">
               <ModeSelector mode={mode} onModeChange={setMode} />
               <ModelSelector
                 model={model}
@@ -672,6 +655,31 @@ export function ChatInterface({
                   onModelChange?.(m);
                 }}
               />
+              <span className="flex-1" />
+              {isStreaming ? (
+                <button
+                  type="button"
+                  onClick={onInterrupt}
+                  className="w-7 h-7 flex items-center justify-center rounded-full text-error hover:bg-background-hover transition-colors"
+                  title="Stop generation"
+                >
+                  <Square className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!input.trim()}
+                  className={clsx(
+                    'w-7 h-7 flex items-center justify-center rounded-full transition-colors',
+                    input.trim()
+                      ? 'bg-foreground text-background hover:bg-foreground-secondary'
+                      : 'text-foreground-muted'
+                  )}
+                  title="Send message"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
         </form>
@@ -729,16 +737,24 @@ function FileContextPills({ files }: { files: Array<{ path: string; name: string
 function MessageBubble({
   message,
   previousMessage,
+  isLastMessage,
   onRestore,
-  onEdit,
+  onEditAndRevert,
+  onEditAndContinue,
 }: {
   message: Message;
   previousMessage?: Message;
+  isLastMessage?: boolean;
   onRestore?: () => void;
-  onEdit?: () => void;
+  onEditAndRevert?: (newContent: string) => void;
+  onEditAndContinue?: (newContent: string) => void;
 }) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
+  const [isInlineEditing, setIsInlineEditing] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const editRef = useRef<HTMLTextAreaElement>(null);
 
   // System messages render as centered, muted text
   if (isSystem) {
@@ -756,84 +772,203 @@ function MessageBubble({
     );
   }
 
-  // Show checkpoint divider above user messages when previous assistant has a checkpoint
-  const showCheckpointDivider =
+  // Show checkpoint restore when previous assistant has a checkpoint
+  const hasCheckpoint =
     isUser &&
     previousMessage?.role === 'assistant' &&
     !!previousMessage?.checkpointCommitHash;
 
+  const canEdit = isUser && (onEditAndRevert || onEditAndContinue);
+
+  const startEditing = () => {
+    if (!canEdit) return;
+    const { textContent } = parseFileContext(message.content);
+    setEditContent(textContent);
+    setIsInlineEditing(true);
+    setTimeout(() => {
+      if (editRef.current) {
+        editRef.current.focus();
+        editRef.current.setSelectionRange(textContent.length, textContent.length);
+        // Auto-resize
+        editRef.current.style.height = 'auto';
+        editRef.current.style.height = `${editRef.current.scrollHeight}px`;
+      }
+    }, 50);
+  };
+
+  const handleEditSubmit = () => {
+    if (!editContent.trim()) return;
+    // Show confirmation dialog if not the last message
+    if (!isLastMessage) {
+      setShowConfirmDialog(true);
+    } else {
+      // Last message — just continue without revert
+      onEditAndContinue?.(editContent);
+      setIsInlineEditing(false);
+    }
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleEditSubmit();
+    }
+    if (e.key === 'Escape') {
+      setIsInlineEditing(false);
+      setShowConfirmDialog(false);
+    }
+  };
+
   return (
     <>
-      {/* Message — flat, no avatars, no bubbles */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         className="group relative"
       >
-        <div className={clsx(
-          'message-content',
-          isUser
-            ? 'message-content-user font-medium text-foreground bg-background-tertiary border border-border-secondary rounded-lg px-3 py-2'
-            : 'message-content-assistant'
-        )}>
-          {(() => {
-            if (isUser && message.context && message.context.length > 0) {
-              const textContent = parseFileContext(message.content).textContent;
-              return (
-                <>
-                  <div className="mb-2">
-                    <ContextBubbleList items={message.context} compact />
-                  </div>
-                  <MarkdownContent content={textContent} />
-                </>
-              );
-            }
-            const { files, textContent } = isUser ? parseFileContext(message.content) : { files: [], textContent: message.content };
-            return (
-              <>
-                {files.length > 0 && <FileContextPills files={files} />}
-                <MarkdownContent content={textContent} />
-              </>
-            );
-          })()}
-
-          {/* Edit & Restore buttons for user messages (visible on hover) */}
-          {isUser && (
-            <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              {onRestore && showCheckpointDivider && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRestore();
-                  }}
-                  className="btn-icon p-1 bg-background-secondary border border-border shadow-lg hover:bg-background-hover"
-                  title="Restore to checkpoint"
-                >
-                  <RotateCcw className="w-3 h-3 text-foreground-muted" />
-                </button>
+        {/* Inline editing mode */}
+        {isInlineEditing ? (
+          <div className="bg-background-tertiary border border-foreground-muted rounded-lg overflow-hidden">
+            <textarea
+              ref={editRef}
+              value={editContent}
+              onChange={(e) => {
+                setEditContent(e.target.value);
+                e.target.style.height = 'auto';
+                e.target.style.height = `${e.target.scrollHeight}px`;
+              }}
+              onKeyDown={handleEditKeyDown}
+              className="w-full px-3 py-2 bg-transparent text-sm text-foreground focus:outline-none resize-none min-h-[40px]"
+            />
+            <div className="flex items-center justify-end gap-2 px-3 py-1.5 border-t border-border">
+              <button
+                type="button"
+                onClick={() => { setIsInlineEditing(false); setShowConfirmDialog(false); }}
+                className="px-2 py-1 text-xs text-foreground-muted hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleEditSubmit}
+                disabled={!editContent.trim()}
+                className="px-3 py-1 text-xs bg-foreground text-background rounded-md hover:bg-foreground-secondary transition-colors disabled:opacity-50"
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Normal message display */}
+            <div
+              className={clsx(
+                'message-content',
+                isUser
+                  ? 'message-content-user font-medium text-foreground bg-background-tertiary border border-border-secondary rounded-lg px-3 py-2 cursor-pointer hover:border-foreground-muted transition-colors'
+                  : 'message-content-assistant'
               )}
-              {onEdit && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEdit();
-                  }}
-                  className="btn-icon p-1 bg-background-secondary border border-border shadow-lg hover:bg-background-hover"
-                  title="Edit message"
-                >
+              onClick={canEdit ? startEditing : undefined}
+            >
+              {(() => {
+                if (isUser && message.context && message.context.length > 0) {
+                  const textContent = parseFileContext(message.content).textContent;
+                  return (
+                    <>
+                      <div className="mb-2">
+                        <ContextBubbleList items={message.context} compact />
+                      </div>
+                      <MarkdownContent content={textContent} />
+                    </>
+                  );
+                }
+                const { files, textContent } = isUser ? parseFileContext(message.content) : { files: [], textContent: message.content };
+                return (
+                  <>
+                    {files.length > 0 && <FileContextPills files={files} />}
+                    <MarkdownContent content={textContent} />
+                  </>
+                );
+              })()}
+
+              {/* Edit hint on hover for user messages */}
+              {canEdit && (
+                <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Pencil className="w-3 h-3 text-foreground-muted" />
-                </button>
+                </div>
               )}
             </div>
-          )}
-        </div>
+
+            {/* Restore checkpoint link — shown below user messages */}
+            {isUser && hasCheckpoint && onRestore && (
+              <div className="mt-1">
+                <button
+                  type="button"
+                  onClick={onRestore}
+                  className="flex items-center gap-1 text-[11px] text-foreground-muted hover:text-foreground transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Restore checkpoint
+                </button>
+              </div>
+            )}
+          </>
+        )}
 
         {/* Tool calls (grouped) */}
         {message.toolCalls && message.toolCalls.length > 0 && (
           <ToolCallGroup toolCalls={message.toolCalls} />
         )}
       </motion.div>
+
+      {/* Confirmation dialog for editing a previous message */}
+      {showConfirmDialog && (
+        <motion.div
+          initial={{ opacity: 0, y: -5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-2 bg-background-tertiary border border-border-secondary rounded-lg p-3"
+        >
+          <p className="text-xs text-foreground-secondary mb-3">
+            Submitting from a previous message will clear the messages after this one.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => { setShowConfirmDialog(false); setIsInlineEditing(false); }}
+              className="px-2 py-1 text-xs text-foreground-muted hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+            {onEditAndContinue && (
+              <button
+                type="button"
+                onClick={() => {
+                  onEditAndContinue(editContent);
+                  setShowConfirmDialog(false);
+                  setIsInlineEditing(false);
+                }}
+                className="px-3 py-1 text-xs border border-border rounded-md hover:bg-background-hover transition-colors"
+              >
+                Continue without reverting
+              </button>
+            )}
+            {onEditAndRevert && (
+              <button
+                type="button"
+                onClick={() => {
+                  onEditAndRevert(editContent);
+                  setShowConfirmDialog(false);
+                  setIsInlineEditing(false);
+                }}
+                className="px-3 py-1 text-xs bg-foreground text-background rounded-md hover:bg-foreground-secondary transition-colors"
+              >
+                Continue and revert
+              </button>
+            )}
+          </div>
+        </motion.div>
+      )}
     </>
   );
 }

@@ -56,7 +56,8 @@ export default function App() {
         }
 
         // Fire-and-forget — don't block init on Claude process startup
-        bridge.startClaude(chat.id);
+        // Pass stored Claude session ID for --resume support across reloads
+        bridge.startClaude(chat.id, chat.claudeSessionId);
 
         // Restore messages from the active chat
         if (chat.messages.length > 0) {
@@ -82,7 +83,13 @@ export default function App() {
     const cleanupChunk = bridge.onClaudeChunk((chunk) => {
       const { appendStreamingContent, setCurrentToolCall, setStreaming, clearStreamingContent, addMessage } = useAgentStore.getState();
 
-      if (chunk.type === 'text') {
+      if (chunk.type === 'init' && chunk.sessionId) {
+        // Persist Claude CLI session ID for resume across reloads
+        const chatId = useChatSessionStore.getState().activeChatId;
+        if (chatId) {
+          useChatSessionStore.getState().updateChat(chatId, { claudeSessionId: chunk.sessionId });
+        }
+      } else if (chunk.type === 'text') {
         appendStreamingContent(chunk.content);
         setCurrentToolCall(null);
       } else if (chunk.type === 'tool_call' && chunk.toolCall) {
@@ -126,14 +133,21 @@ export default function App() {
         updateMessage(message.id, { checkpointCommitHash: commitHash });
       }
 
-      // Auto-name the chat session
+      // Auto-name the chat session from first user message + AI summary
       const chatId = useChatSessionStore.getState().activeChatId;
       if (chatId) {
         const chat = useChatSessionStore.getState().sessions[chatId];
         if (chat && chat.messages.length === 0) {
           const firstUser = currentMessages.find((m) => m.role === 'user');
           if (firstUser) {
-            const name = firstUser.content.slice(0, 50).trim() || 'New Chat';
+            // Strip <file> tags and extract meaningful text
+            const stripped = firstUser.content
+              .replace(/<file\s+path="[^"]*">\n?[\s\S]*?\n?<\/file>/g, '')
+              .replace(/^\n+/, '')
+              .trim();
+            // Use first line/sentence, capped at 40 chars
+            const firstLine = stripped.split(/[\n.!?]/)[0]?.trim() || stripped;
+            const name = firstLine.slice(0, 40).trim() || 'New Chat';
             useChatSessionStore.getState().updateChat(chatId, { name });
           }
         }
@@ -351,6 +365,23 @@ export default function App() {
     useAgentStore.getState().setDraftInput(editContent);
   }, [bridge]);
 
+  // Edit message and continue without reverting git
+  const handleEditMessageAndContinue = useCallback(async (messageId: string, newContent: string) => {
+    const currentMessages = useAgentStore.getState().messages;
+    const messageIndex = currentMessages.findIndex((m) => m.id === messageId);
+    if (messageIndex === -1) return;
+
+    // Truncate everything after this message
+    if (messageIndex > 0) {
+      useAgentStore.getState().truncateAfterMessage(currentMessages[messageIndex - 1].id);
+    } else {
+      useAgentStore.getState().clearMessages();
+    }
+
+    // Send the new content as a fresh message
+    await handleSendMessage(newContent);
+  }, [handleSendMessage]);
+
   // Cancel edit
   const handleCancelEdit = useCallback(async () => {
     if (!editSnapshot) return;
@@ -376,7 +407,7 @@ export default function App() {
     // Create new chat
     const branch = currentBranch || 'main';
     const chatCount = useChatSessionStore.getState().getChatsForBranch(branch).length;
-    const newChat = useChatSessionStore.getState().createChat(branch, `Chat ${chatCount + 1}`);
+    const newChat = useChatSessionStore.getState().createChat(branch, 'New Chat');
     // Clear messages
     useAgentStore.getState().clearMessages();
     // Notify extension host
@@ -395,7 +426,7 @@ export default function App() {
     if (targetChat) {
       useAgentStore.getState().setMessages(targetChat.messages);
       useChatSessionStore.getState().setActiveChatId(chatId);
-      bridge.switchChatSession(chatId);
+      bridge.switchChatSession(chatId, targetChat.claudeSessionId);
     }
   }, [bridge]);
 
@@ -454,6 +485,7 @@ export default function App() {
           onInterrupt={handleInterrupt}
           onRestoreToMessage={handleRestoreToMessage}
           onEditMessage={handleEditMessage}
+          onEditMessageAndContinue={handleEditMessageAndContinue}
           onCancelEdit={handleCancelEdit}
           onReadFile={(path) => bridge.readFile(path)}
           onImplementPlan={handleImplementPlan}

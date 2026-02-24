@@ -171,6 +171,7 @@ export interface ChatSession {
   messages: Message[];
   createdAt: number;
   lastActive: number;
+  claudeSessionId?: string;
 }
 
 // ----------------------------------------------------------------------------

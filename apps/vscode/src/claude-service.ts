@@ -35,6 +35,10 @@ export class ClaudeService {
   private setupEventForwarding() {
     if (this.claudeManager) {
       this.claudeManager.on('chunk', (chunk) => {
+        // Capture Claude CLI session ID for resume support
+        if (chunk.type === 'init' && chunk.sessionId && this.currentChatSessionId) {
+          this.claudeSessionIds.set(this.currentChatSessionId, chunk.sessionId);
+        }
         this.postMessage({ type: 'claude:chunk', data: chunk });
       });
 
@@ -62,11 +66,20 @@ export class ClaudeService {
     }
   }
 
-  async startClaude(chatSessionId?: string): Promise<boolean> {
+  async startClaude(chatSessionId?: string, claudeSessionId?: string): Promise<boolean> {
     if (!this.claudeManager) return false;
     try {
       if (chatSessionId) {
         this.currentChatSessionId = chatSessionId;
+      }
+      // Restore Claude CLI session ID for --resume support
+      if (claudeSessionId) {
+        this.claudeManager.setSessionId(claudeSessionId);
+        if (chatSessionId) {
+          this.claudeSessionIds.set(chatSessionId, claudeSessionId);
+        }
+      } else if (chatSessionId && this.claudeSessionIds.has(chatSessionId)) {
+        this.claudeManager.setSessionId(this.claudeSessionIds.get(chatSessionId)!);
       }
       if (!this.claudeManager.running) {
         await this.claudeManager.spawn();
@@ -231,14 +244,14 @@ export class ClaudeService {
     }
   }
 
-  async switchChatSession(chatSessionId: string): Promise<void> {
+  async switchChatSession(chatSessionId: string, claudeSessionId?: string): Promise<void> {
     if (!this.claudeManager) return;
     this.currentChatSessionId = chatSessionId;
 
     if (this.claudeManager.running) {
       this.claudeManager.terminate();
     }
-    await this.startClaude(chatSessionId);
+    await this.startClaude(chatSessionId, claudeSessionId);
   }
 
   async readFile(filePath: string): Promise<string | null> {

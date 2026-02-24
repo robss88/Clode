@@ -17,7 +17,7 @@ export class MessageHandler {
         // Claude operations
         case 'claude:start':
           // Fire-and-forget — respond immediately, errors come via events
-          this.service.startClaude(data?.chatSessionId).catch((err) => {
+          this.service.startClaude(data?.chatSessionId, data?.claudeSessionId).catch((err) => {
             this.postMessage({ type: 'claude:error', data: String(err) });
           });
           result = true;
@@ -115,7 +115,7 @@ export class MessageHandler {
 
         // Chat session
         case 'chat:switch':
-          await this.service.switchChatSession(data?.chatSessionId);
+          await this.service.switchChatSession(data?.chatSessionId, data?.claudeSessionId);
           result = true;
           break;
 

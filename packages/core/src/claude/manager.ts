@@ -81,6 +81,14 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
     this.config.model = model;
   }
 
+  setSessionId(id: string | null): void {
+    this.sessionId = id;
+  }
+
+  getSessionId(): string | null {
+    return this.sessionId;
+  }
+
   async sendMessage(content: string, options?: { extraFlags?: string[]; model?: string }): Promise<void> {
     console.log('[ClaudeCodeManager] sendMessage called with:', content.slice(0, 50));
 

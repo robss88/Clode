@@ -75,7 +75,7 @@ export function createVSCodeBridge(): PlatformBridge {
     sendMessage: (content, options) => invoke('claude:send', { content, options }),
     setModel: (model) => invoke('claude:set-model', { model }),
     interruptClaude: () => invoke('claude:interrupt'),
-    startClaude: (chatSessionId) => invoke('claude:start', { chatSessionId }),
+    startClaude: (chatSessionId, claudeSessionId) => invoke('claude:start', { chatSessionId, claudeSessionId }),
 
     // Checkpoints
     createCheckpoint: (title, description, messages, options) =>
@@ -98,7 +98,7 @@ export function createVSCodeBridge(): PlatformBridge {
     gitCommitAll: (message) => invoke('git:commit-all', { message }),
 
     // Chat sessions
-    switchChatSession: (id) => invoke('chat:switch', { chatSessionId: id }),
+    switchChatSession: (id, claudeSessionId) => invoke('chat:switch', { chatSessionId: id, claudeSessionId }),
 
     // Files
     readFile: (path) => invoke('file:read', { path }),

@@ -5,7 +5,7 @@ export interface PlatformBridge {
   sendMessage(content: string, options?: { extraFlags?: string[]; model?: string }): Promise<boolean>;
   setModel(model: string): Promise<boolean>;
   interruptClaude(): Promise<void>;
-  startClaude(chatSessionId?: string): Promise<boolean>;
+  startClaude(chatSessionId?: string, claudeSessionId?: string): Promise<boolean>;
 
   // Checkpoints
   createCheckpoint(
@@ -32,7 +32,7 @@ export interface PlatformBridge {
   gitCommitAll(message: string): Promise<string>;
 
   // Chat sessions
-  switchChatSession(id: string): Promise<void>;
+  switchChatSession(id: string, claudeSessionId?: string): Promise<void>;
 
   // Files (for @ mentions)
   readFile(path: string): Promise<string | null>;
