@@ -510,23 +510,23 @@ function getToolCallSummary(toolCall: ToolCall): string {
     case 'read':
     case 'read_file':
       return input.file_path
-        ? `Reading ${String(input.file_path).split('/').pop()}`
-        : 'Reading file';
+        ? `Read ${String(input.file_path).split('/').pop()}`
+        : 'Read file';
     case 'write':
       return input.file_path
-        ? `Writing ${String(input.file_path).split('/').pop()}`
-        : 'Writing file';
+        ? `Wrote ${String(input.file_path).split('/').pop()}`
+        : 'Wrote file';
     case 'edit':
       return input.file_path
-        ? `Editing ${String(input.file_path).split('/').pop()}`
-        : 'Editing file';
+        ? `Edited ${String(input.file_path).split('/').pop()}`
+        : 'Edited file';
     case 'bash':
       const cmd = String(input.command || '').slice(0, 60);
-      return cmd ? `Running: ${cmd}` : 'Running command';
+      return cmd ? `Ran: ${cmd}` : 'Ran command';
     case 'glob':
-      return input.pattern ? `Searching: ${input.pattern}` : 'Searching files';
+      return input.pattern ? `Searched: ${input.pattern}` : 'Searched files';
     case 'grep':
-      return input.pattern ? `Grep: ${input.pattern}` : 'Searching content';
+      return input.pattern ? `Grep: ${input.pattern}` : 'Searched content';
     default:
       return toolCall.name;
   }
@@ -564,8 +564,16 @@ function ToolCallGroup({ toolCalls }: { toolCalls: ToolCall[] }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const completedCount = toolCalls.filter((t) => t.status === 'completed').length;
+  const errorCount = toolCalls.filter((t) => t.status === 'error').length;
   const hasRunning = toolCalls.some((t) => t.status === 'running');
-  const hasError = toolCalls.some((t) => t.status === 'error');
+  const allDone = !hasRunning && (completedCount + errorCount) === toolCalls.length;
+
+  // Build a short summary of what tools did
+  const toolSummaries = !hasRunning ? toolCalls.map((t) => getToolCallSummary(t)) : [];
+  // Show first 2 summaries inline when collapsed
+  const inlineSummary = toolSummaries.length > 0
+    ? toolSummaries.slice(0, 2).join(', ') + (toolSummaries.length > 2 ? ` +${toolSummaries.length - 2} more` : '')
+    : '';
 
   return (
     <div className="mt-2">
@@ -577,7 +585,6 @@ function ToolCallGroup({ toolCalls }: { toolCalls: ToolCall[] }) {
           'w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors',
           'border border-border hover:bg-background-hover',
           hasRunning && 'border-foreground-muted bg-background-tertiary',
-          hasError && 'border-error bg-error-muted'
         )}
       >
         <ChevronRight
@@ -587,16 +594,23 @@ function ToolCallGroup({ toolCalls }: { toolCalls: ToolCall[] }) {
           )}
         />
         <Wrench className="w-3.5 h-3.5 text-foreground-muted" />
-        <span className="text-foreground-muted">
+        <span className="text-foreground-muted truncate text-left flex-1">
           {hasRunning
             ? `Running tool...`
-            : `${completedCount} tool call${completedCount !== 1 ? 's' : ''}`}
+            : inlineSummary || `${completedCount} tool call${completedCount !== 1 ? 's' : ''}`}
         </span>
-        <span className="flex-1" />
-        {hasRunning && <Loader2 className="w-3.5 h-3.5 animate-spin text-foreground-secondary" />}
-        {!hasRunning && hasError && <XCircle className="w-3.5 h-3.5 text-error" />}
-        {!hasRunning && !hasError && completedCount === toolCalls.length && (
-          <CheckCircle2 className="w-3.5 h-3.5 text-success" />
+        {hasRunning && <Loader2 className="w-3.5 h-3.5 animate-spin text-foreground-secondary flex-shrink-0" />}
+        {allDone && errorCount > 0 && completedCount > 0 && (
+          <span className="flex items-center gap-1 flex-shrink-0">
+            <CheckCircle2 className="w-3.5 h-3.5 text-success" />
+            <XCircle className="w-3 h-3 text-foreground-muted" />
+          </span>
+        )}
+        {allDone && errorCount > 0 && completedCount === 0 && (
+          <XCircle className="w-3.5 h-3.5 text-error flex-shrink-0" />
+        )}
+        {allDone && errorCount === 0 && (
+          <CheckCircle2 className="w-3.5 h-3.5 text-success flex-shrink-0" />
         )}
       </button>
 
@@ -621,9 +635,22 @@ function ToolCallGroup({ toolCalls }: { toolCalls: ToolCall[] }) {
   );
 }
 
+function getToolCallDetail(toolCall: ToolCall): string | null {
+  const input = toolCall.input || {};
+  const name = toolCall.name.toLowerCase();
+  if ((name === 'read' || name === 'read_file' || name === 'write' || name === 'edit') && input.file_path) {
+    return String(input.file_path);
+  }
+  if (name === 'bash' && input.description) {
+    return String(input.description);
+  }
+  return null;
+}
+
 function ToolCallIndicator({ toolCall }: { toolCall: ToolCall }) {
   const [showDetails, setShowDetails] = useState(false);
   const summary = getToolCallSummary(toolCall);
+  const detail = getToolCallDetail(toolCall);
 
   return (
     <div>
@@ -631,15 +658,20 @@ function ToolCallIndicator({ toolCall }: { toolCall: ToolCall }) {
         type="button"
         onClick={() => setShowDetails(!showDetails)}
         className={clsx(
-          'w-full flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors',
+          'w-full flex items-start gap-2 px-2 py-1 rounded text-xs transition-colors',
           'hover:bg-background-hover',
           toolCall.status === 'running' && 'text-foreground-secondary',
           toolCall.status === 'error' && 'text-error'
         )}
       >
-        {getToolIcon(toolCall.name)}
-        <span className="truncate text-left flex-1">{summary}</span>
-        {getStatusIcon(toolCall.status)}
+        <span className="mt-0.5 flex-shrink-0">{getToolIcon(toolCall.name)}</span>
+        <div className="flex-1 min-w-0 text-left">
+          <span className="truncate block">{summary}</span>
+          {detail && (
+            <span className="truncate block text-[11px] text-foreground-muted/60 font-mono">{detail}</span>
+          )}
+        </div>
+        <span className="mt-0.5 flex-shrink-0">{getStatusIcon(toolCall.status)}</span>
       </button>
       {showDetails && (
         <div className="ml-6 mt-0.5 mb-1 px-2 py-1.5 bg-background rounded text-[11px] font-mono text-foreground-muted overflow-x-auto">
