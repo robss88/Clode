@@ -32,7 +32,7 @@
 
   /* Selection */
   ::selection {
-    @apply bg-accent-muted;
+    background-color: rgba(147, 130, 220, 0.45);
   }
 }
 

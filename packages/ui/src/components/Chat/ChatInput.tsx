@@ -7,7 +7,6 @@ import { useUIStore } from '../../stores';
 import { getAvailableCommands, parseSlashCommand } from '../../commands';
 import { ModeSelector } from './ModeSelector';
 import { ModelSelector } from './ModelSelector';
-import { ContextBubbleList } from './ContextBubble';
 
 // Flatten file tree to get all file paths
 function flattenFileTree(node: FileNode, rootPath?: string): Array<{ path: string; displayPath: string; name: string; type: 'file' | 'directory' }> {
@@ -29,30 +28,187 @@ function flattenFileTree(node: FileNode, rootPath?: string): Array<{ path: strin
   return results;
 }
 
+// ─── Helpers for contentEditable ────────────────────────────────────
+
+const MENTION_ATTR = 'data-mention-path';
+
+/** Shared file preview cache so we don't re-fetch on every hover */
+const filePreviewCache = new Map<string, string | null>();
+
+/** Create a mention chip DOM element */
+function createMentionChip(fileName: string, filePath: string, readFile?: (path: string) => Promise<string | null>): HTMLSpanElement {
+  const chip = document.createElement('span');
+  chip.setAttribute(MENTION_ATTR, filePath);
+  chip.setAttribute('contenteditable', 'false');
+  chip.style.userSelect = 'all';
+  chip.style.webkitUserSelect = 'all';
+  chip.style.display = 'inline';
+  chip.style.MozUserSelect = 'all';
+  chip.className = 'px-1.5 py-px mx-0.5 rounded bg-background-hover border border-border text-[11px] text-foreground-secondary cursor-default';
+  chip.textContent = `@${fileName}`;
+
+  // Hover tooltip with file preview
+  let tooltip: HTMLDivElement | null = null;
+  let hideTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  function showTooltip() {
+    if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
+    if (tooltip) return; // already showing
+
+    tooltip = document.createElement('div');
+    tooltip.className = 'fixed z-50 w-80 max-h-64 overflow-y-auto rounded-lg border border-border bg-background-tertiary shadow-xl text-[11px] font-mono p-2 whitespace-pre-wrap break-all';
+
+    // Position below the chip
+    const rect = chip.getBoundingClientRect();
+    tooltip.style.left = `${rect.left}px`;
+    tooltip.style.top = `${rect.bottom + 4}px`;
+
+    // Path header
+    const header = document.createElement('div');
+    header.className = 'text-foreground-secondary font-medium mb-1.5 pb-1.5 border-b border-border text-[11px]';
+    header.textContent = filePath;
+    tooltip.appendChild(header);
+
+    // Content area
+    const contentEl = document.createElement('div');
+    contentEl.className = 'text-foreground-muted';
+    contentEl.textContent = 'Loading...';
+    tooltip.appendChild(contentEl);
+
+    // Keep tooltip alive when hovering over it
+    tooltip.addEventListener('mouseenter', () => {
+      if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
+    });
+    tooltip.addEventListener('mouseleave', () => {
+      hideTimeout = setTimeout(removeTooltip, 150);
+    });
+
+    document.body.appendChild(tooltip);
+
+    // Load file content
+    (async () => {
+      let content = filePreviewCache.get(filePath);
+      if (content === undefined && readFile) {
+        content = await readFile(filePath);
+        filePreviewCache.set(filePath, content);
+      }
+
+      if (contentEl && document.body.contains(contentEl)) {
+        if (content) {
+          const lines = content.split('\n');
+          const preview = lines.slice(0, 40).join('\n') + (lines.length > 40 ? `\n... (${lines.length - 40} more lines)` : '');
+          contentEl.textContent = preview;
+        } else {
+          contentEl.textContent = '(unable to load file)';
+        }
+      }
+    })();
+  }
+
+  function removeTooltip() {
+    if (tooltip && document.body.contains(tooltip)) {
+      document.body.removeChild(tooltip);
+    }
+    tooltip = null;
+  }
+
+  chip.addEventListener('mouseenter', showTooltip);
+  chip.addEventListener('mouseleave', () => {
+    hideTimeout = setTimeout(removeTooltip, 200);
+  });
+
+  return chip;
+}
+
+/** Get plain text from the contentEditable div, converting chips to @filename */
+function getPlainText(el: HTMLElement): string {
+  let text = '';
+  for (const node of Array.from(el.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent || '';
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const element = node as HTMLElement;
+      if (element.hasAttribute(MENTION_ATTR)) {
+        text += element.textContent || '';
+      } else if (element.tagName === 'BR') {
+        text += '\n';
+      } else {
+        // Recurse for nested elements (e.g. divs created by Enter)
+        text += getPlainText(element);
+        // Add newline after block-level elements
+        if (['DIV', 'P'].includes(element.tagName)) {
+          text += '\n';
+        }
+      }
+    }
+  }
+  return text;
+}
+
+/** Extract all mention paths from the contentEditable div */
+function extractMentions(el: HTMLElement): Array<{ name: string; path: string }> {
+  const mentions: Array<{ name: string; path: string }> = [];
+  const chips = el.querySelectorAll(`[${MENTION_ATTR}]`);
+  chips.forEach((chip) => {
+    const path = chip.getAttribute(MENTION_ATTR)!;
+    const name = path.split('/').pop() || path;
+    if (!mentions.some((m) => m.path === path)) {
+      mentions.push({ name, path });
+    }
+  });
+  return mentions;
+}
+
+/** Place cursor at end of contentEditable */
+function placeCursorAtEnd(el: HTMLElement) {
+  const range = document.createRange();
+  const sel = window.getSelection();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
+/** Place cursor after a specific node */
+function placeCursorAfter(node: Node) {
+  const range = document.createRange();
+  const sel = window.getSelection();
+  range.setStartAfter(node);
+  range.collapse(true);
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
+/** Get text content before cursor in the contentEditable */
+function getTextBeforeCursor(el: HTMLElement): string {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return '';
+  const range = sel.getRangeAt(0);
+
+  const preRange = document.createRange();
+  preRange.selectNodeContents(el);
+  preRange.setEnd(range.startContainer, range.startOffset);
+
+  const fragment = preRange.cloneContents();
+  const tempDiv = document.createElement('div');
+  tempDiv.appendChild(fragment);
+  return getPlainText(tempDiv);
+}
+
+// ─── Component ──────────────────────────────────────────────────────
+
 export interface ChatInputProps {
-  /** Initial text to populate the input with */
   initialValue?: string;
-  /** Placeholder text */
   placeholder?: string;
-  /** File tree for @ mentions */
   fileTree?: FileNode | null;
-  /** Whether to disable the input (e.g. during streaming) */
   disabled?: boolean;
-  /** Whether currently streaming (shows stop button instead of send) */
   isStreaming?: boolean;
-  /** Called when submitting the input */
   onSubmit: (content: string, context?: ContextItem[]) => void;
-  /** Called when stop/interrupt is clicked (streaming mode) */
   onInterrupt?: () => void;
-  /** Called when cancel is clicked (edit mode) */
   onCancel?: () => void;
-  /** Called to read file contents for context items */
   onReadFile?: (path: string) => Promise<string | null>;
-  /** Called when model changes (notifies parent) */
   onModelChange?: (model: string) => void;
-  /** Direction for selector dropdowns — 'up' for bottom input, 'down' for sticky edit */
   dropdownDirection?: 'up' | 'down';
-  /** Auto-focus the textarea on mount */
   autoFocus?: boolean;
 }
 
@@ -70,19 +226,19 @@ export function ChatInput({
   dropdownDirection = 'up',
   autoFocus = false,
 }: ChatInputProps) {
-  const [input, setInput] = useState(initialValue);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionIndex, setMentionIndex] = useState(0);
-  const [mentionStartPos, setMentionStartPos] = useState(0);
   const [showSlashCommands, setShowSlashCommands] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
-  const [contextItems, setContextItems] = useState<ContextItem[]>([]);
+  const [hasContent, setHasContent] = useState(!!initialValue);
 
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const mentionListRef = useRef<HTMLDivElement>(null);
   const slashListRef = useRef<HTMLDivElement>(null);
+  // Track the range where @query starts so we can replace it
+  const mentionStartRef = useRef<{ node: Node; offset: number } | null>(null);
 
   // Shared mode/model from store
   const mode = useUIStore((state) => state.mode);
@@ -115,25 +271,26 @@ export function ChatInput({
 
   // Auto-focus
   useEffect(() => {
-    if (autoFocus) {
+    if (autoFocus && editorRef.current) {
       setTimeout(() => {
-        if (inputRef.current) {
-          inputRef.current.focus();
-          const len = inputRef.current.value.length;
-          inputRef.current.setSelectionRange(len, len);
+        if (editorRef.current) {
+          editorRef.current.focus();
+          if (initialValue) {
+            placeCursorAtEnd(editorRef.current);
+          }
         }
       }, 50);
     }
-  }, [autoFocus]);
+  }, [autoFocus, initialValue]);
 
-  // Auto-resize textarea
-  useEffect(() => {
-    const el = inputRef.current;
+  // Auto-resize
+  const updateHeight = useCallback(() => {
+    const el = editorRef.current;
     if (!el) return;
     el.style.height = '40px';
     const maxHeight = 240;
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-  }, [input]);
+  }, []);
 
   // Scroll mention list item into view
   useEffect(() => {
@@ -153,15 +310,19 @@ export function ChatInput({
     }
   }, [slashIndex, showSlashCommands]);
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    const cursorPos = e.target.selectionStart || 0;
-    setInput(value);
+  /** Check for @mentions or /commands after the user types */
+  const handleInput = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+
+    const text = getPlainText(el).replace(/\n$/, '');
+    setHasContent(text.length > 0);
+    updateHeight();
 
     // Check for slash command (only at start of input)
-    if (value.startsWith('/')) {
-      const parsed = parseSlashCommand(value);
-      if (parsed && !value.includes(' ')) {
+    if (text.startsWith('/')) {
+      const parsed = parseSlashCommand(text);
+      if (parsed && !text.includes(' ')) {
         setShowSlashCommands(true);
         setSlashQuery(parsed.command);
         setSlashIndex(0);
@@ -172,19 +333,34 @@ export function ChatInput({
     setShowSlashCommands(false);
     setSlashQuery('');
 
-    // Check for @ mention
-    const textBeforeCursor = value.slice(0, cursorPos);
+    // Check for @ mention — look at text before cursor
+    const textBeforeCursor = getTextBeforeCursor(el);
     const atIndex = textBeforeCursor.lastIndexOf('@');
 
     if (atIndex !== -1) {
       const charBeforeAt = atIndex > 0 ? textBeforeCursor[atIndex - 1] : ' ';
       if (charBeforeAt === ' ' || charBeforeAt === '\n' || atIndex === 0) {
         const query = textBeforeCursor.slice(atIndex + 1);
-        if (!query.includes(' ')) {
+        if (!query.includes(' ') && !query.includes('\n')) {
           setShowMentions(true);
           setMentionQuery(query);
-          setMentionStartPos(atIndex);
           setMentionIndex(0);
+
+          // Save the cursor position for later replacement
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            // Walk back to find the @ character in the text node
+            if (range.startContainer.nodeType === Node.TEXT_NODE) {
+              const nodeText = range.startContainer.textContent || '';
+              const cursorInNode = range.startOffset;
+              // The @ is somewhere in this text node or a previous one
+              const atInNode = nodeText.lastIndexOf('@', cursorInNode - 1);
+              if (atInNode !== -1) {
+                mentionStartRef.current = { node: range.startContainer, offset: atInNode };
+              }
+            }
+          }
           return;
         }
       }
@@ -192,71 +368,99 @@ export function ChatInput({
 
     setShowMentions(false);
     setMentionQuery('');
-  }, []);
+    mentionStartRef.current = null;
+  }, [updateHeight]);
 
+  /** Insert a file mention chip at the current @ position */
   const insertMention = useCallback((filePath: string) => {
+    const el = editorRef.current;
+    if (!el) return;
+
     const fileName = filePath.split('/').pop() || filePath;
-    const beforeMention = input.slice(0, mentionStartPos);
-    const afterMention = input.slice(mentionStartPos + mentionQuery.length + 1);
-    const newInput = `${beforeMention}${afterMention}`.trim();
-    setInput(newInput);
+    const chip = createMentionChip(fileName, filePath, onReadFile);
+
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && mentionStartRef.current) {
+      const { node, offset } = mentionStartRef.current;
+      const range = sel.getRangeAt(0);
+
+      // Delete from @ to current cursor position
+      const deleteRange = document.createRange();
+      deleteRange.setStart(node, offset);
+      deleteRange.setEnd(range.startContainer, range.startOffset);
+      deleteRange.deleteContents();
+
+      // Insert chip at the deletion point
+      const insertRange = document.createRange();
+      insertRange.setStart(node, offset);
+      insertRange.collapse(true);
+
+      // Add a space after the chip
+      const space = document.createTextNode('\u00A0');
+      insertRange.insertNode(space);
+      insertRange.insertNode(chip);
+
+      placeCursorAfter(space);
+    } else {
+      // Fallback: append at end
+      el.appendChild(chip);
+      const space = document.createTextNode('\u00A0');
+      el.appendChild(space);
+      placeCursorAfter(space);
+    }
+
     setShowMentions(false);
     setMentionQuery('');
+    mentionStartRef.current = null;
+    setHasContent(true);
+    updateHeight();
 
-    const item: ContextItem = {
-      id: `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      type: 'file',
-      name: fileName,
-      path: filePath,
-    };
-    setContextItems(prev => {
-      if (prev.some(c => c.path === filePath)) return prev;
-      return [...prev, item];
-    });
-
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-      }
-    }, 0);
-  }, [input, mentionStartPos, mentionQuery]);
+    el.focus();
+  }, [onReadFile, updateHeight]);
 
   const insertSlashCommand = useCallback((commandName: string) => {
-    const newInput = `/${commandName} `;
-    setInput(newInput);
+    const el = editorRef.current;
+    if (!el) return;
+    el.textContent = `/${commandName} `;
     setShowSlashCommands(false);
     setSlashQuery('');
+    setHasContent(true);
     setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-        inputRef.current.setSelectionRange(newInput.length, newInput.length);
+      if (el) {
+        el.focus();
+        placeCursorAtEnd(el);
       }
     }, 0);
-  }, []);
-
-  const removeContextItem = useCallback((id: string) => {
-    setContextItems(prev => prev.filter(c => c.id !== id));
   }, []);
 
   const handleSubmit = useCallback(async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if ((!input.trim() && contextItems.length === 0) || disabled) return;
+    const el = editorRef.current;
+    if (!el) return;
 
-    let content = input.trim();
+    const text = getPlainText(el).replace(/\n$/, '').trim();
+    const mentions = extractMentions(el);
 
-    // Load file contents for context items
+    if (!text && mentions.length === 0) return;
+    if (disabled) return;
+
+    // Build content — prepend file contents
+    let content = text;
     const resolvedContext: ContextItem[] = [];
-    if (contextItems.length > 0 && onReadFile) {
+
+    if (mentions.length > 0 && onReadFile) {
       const fileParts: string[] = [];
-      for (const item of contextItems) {
-        if (item.type === 'file' && item.path) {
-          const fileContent = await onReadFile(item.path);
-          if (fileContent !== null) {
-            fileParts.push(`<file path="${item.path}">\n${fileContent}\n</file>`);
-            resolvedContext.push({ ...item, content: fileContent, preview: fileContent.slice(0, 200) });
-          } else {
-            resolvedContext.push(item);
-          }
+      for (const mention of mentions) {
+        const fileContent = await onReadFile(mention.path);
+        const item: ContextItem = {
+          id: `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          type: 'file',
+          name: mention.name,
+          path: mention.path,
+        };
+        if (fileContent !== null) {
+          fileParts.push(`<file path="${mention.path}">\n${fileContent}\n</file>`);
+          resolvedContext.push({ ...item, content: fileContent, preview: fileContent.slice(0, 200) });
         } else {
           resolvedContext.push(item);
         }
@@ -267,10 +471,13 @@ export function ChatInput({
     }
 
     onSubmit(content, resolvedContext.length > 0 ? resolvedContext : undefined);
-    setInput('');
-    setContextItems([]);
+
+    // Clear editor
+    el.innerHTML = '';
+    setHasContent(false);
     setShowMentions(false);
-  }, [input, disabled, onSubmit, contextItems, onReadFile]);
+    updateHeight();
+  }, [disabled, onSubmit, onReadFile, updateHeight]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // Handle slash command navigation
@@ -331,6 +538,96 @@ export function ChatInput({
     }
   }, [showSlashCommands, filteredCommands, slashIndex, insertSlashCommand, showMentions, filteredFiles, mentionIndex, insertMention, handleSubmit, onCancel]);
 
+  // Handle copy — put both plain text and HTML with chip markup on clipboard
+  const handleCopy = useCallback((e: React.ClipboardEvent) => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+
+    const fragment = sel.getRangeAt(0).cloneContents();
+    const tempDiv = document.createElement('div');
+    tempDiv.appendChild(fragment);
+
+    e.preventDefault();
+    e.clipboardData.setData('text/plain', getPlainText(tempDiv));
+    // Preserve chip HTML so pasting into another ChatInput reconstructs chips
+    e.clipboardData.setData('text/html', tempDiv.innerHTML);
+  }, []);
+
+  // Handle paste — reconstruct mention chips if pasted from another ChatInput
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    e.preventDefault();
+
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+
+    // Delete any selected content first
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+
+    const html = e.clipboardData.getData('text/html');
+
+    // Check if the HTML contains our mention chips
+    if (html && html.includes(MENTION_ATTR)) {
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = html;
+
+      // Walk the pasted HTML and rebuild nodes: keep chips, convert everything else to text
+      let lastInserted: Node | null = null;
+      const insertAt = range.cloneRange();
+      insertAt.collapse(true);
+
+      function processNodes(parent: HTMLElement) {
+        for (const node of Array.from(parent.childNodes)) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const textNode = document.createTextNode(node.textContent || '');
+            insertAt.insertNode(textNode);
+            insertAt.setStartAfter(textNode);
+            insertAt.collapse(true);
+            lastInserted = textNode;
+          } else if (node.nodeType === Node.ELEMENT_NODE) {
+            const el = node as HTMLElement;
+            if (el.hasAttribute(MENTION_ATTR)) {
+              // Reconstruct the mention chip
+              const path = el.getAttribute(MENTION_ATTR)!;
+              const name = path.split('/').pop() || path;
+              const chip = createMentionChip(name, path, onReadFile);
+              insertAt.insertNode(chip);
+              insertAt.setStartAfter(chip);
+              insertAt.collapse(true);
+              lastInserted = chip;
+            } else if (el.tagName === 'BR') {
+              const br = document.createElement('br');
+              insertAt.insertNode(br);
+              insertAt.setStartAfter(br);
+              insertAt.collapse(true);
+              lastInserted = br;
+            } else {
+              // Recurse into other elements
+              processNodes(el);
+            }
+          }
+        }
+      }
+
+      processNodes(tempDiv);
+
+      if (lastInserted) {
+        placeCursorAfter(lastInserted);
+      }
+    } else {
+      // Plain text paste
+      const text = e.clipboardData.getData('text/plain');
+      if (!text) return;
+
+      const textNode = document.createTextNode(text);
+      range.insertNode(textNode);
+      placeCursorAfter(textNode);
+    }
+
+    setHasContent(true);
+    updateHeight();
+  }, [onReadFile, updateHeight]);
+
   const dropdownPositionClass = dropdownDirection === 'down'
     ? 'top-full left-0 right-0 mt-2'
     : 'bottom-full left-0 right-0 mb-2';
@@ -345,10 +642,10 @@ export function ChatInput({
             initial={{ opacity: 0, y: dropdownDirection === 'down' ? -10 : 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: dropdownDirection === 'down' ? -10 : 10 }}
-            className={clsx('absolute max-h-48 overflow-y-auto bg-background-secondary border border-border rounded-lg shadow-xl z-20', dropdownPositionClass)}
+            className={clsx('absolute max-h-48 overflow-y-auto bg-background-tertiary border border-border-secondary rounded-lg shadow-xl z-20', dropdownPositionClass)}
           >
             <div className="p-1">
-              <div className="px-2 py-1 text-xs text-foreground-muted">Commands</div>
+              <div className="px-3 py-1 text-xs text-foreground-muted">Commands</div>
               {filteredCommands.map((cmd, index) => (
                 <button
                   key={cmd.name}
@@ -356,16 +653,16 @@ export function ChatInput({
                   data-command={cmd.name}
                   onClick={() => insertSlashCommand(cmd.name)}
                   className={clsx(
-                    'w-full flex items-center gap-3 px-2 py-1.5 text-sm rounded text-left transition-colors',
+                    'w-full flex items-center gap-3 px-3 py-2 rounded text-left transition-colors',
                     index === slashIndex
-                      ? 'bg-background-hover text-foreground'
-                      : 'hover:bg-background-hover'
+                      ? 'bg-background-active text-foreground hover:bg-background-active'
+                      : 'hover:bg-background-hover text-foreground'
                   )}
                 >
-                  <Slash className="w-4 h-4 text-foreground-muted flex-shrink-0" />
+                  <Slash className="w-4 h-4 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <span className="font-mono font-medium">/{cmd.name}</span>
-                    <span className="ml-2 text-xs text-foreground-muted">{cmd.description}</span>
+                    <div className="text-sm font-medium">/{cmd.name}</div>
+                    <div className="text-xs text-foreground-muted">{cmd.description}</div>
                   </div>
                 </button>
               ))}
@@ -382,10 +679,10 @@ export function ChatInput({
             initial={{ opacity: 0, y: dropdownDirection === 'down' ? -10 : 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: dropdownDirection === 'down' ? -10 : 10 }}
-            className={clsx('absolute max-h-48 overflow-y-auto bg-background-secondary border border-border rounded-lg shadow-xl z-20', dropdownPositionClass)}
+            className={clsx('absolute max-h-48 overflow-y-auto bg-background-tertiary border border-border-secondary rounded-lg shadow-xl z-20', dropdownPositionClass)}
           >
             <div className="p-1">
-              <div className="px-2 py-1 text-xs text-foreground-muted">
+              <div className="px-3 py-1 text-xs text-foreground-muted">
                 Files {mentionQuery && `matching "${mentionQuery}"`}
               </div>
               {filteredFiles.map((file, index) => (
@@ -394,14 +691,14 @@ export function ChatInput({
                   type="button"
                   onClick={() => insertMention(file.path)}
                   className={clsx(
-                    'w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded text-left transition-colors',
+                    'w-full flex items-center gap-3 px-3 py-2 rounded text-left transition-colors',
                     index === mentionIndex
-                      ? 'bg-background-hover text-foreground'
-                      : 'hover:bg-background-hover'
+                      ? 'bg-background-active text-foreground hover:bg-background-active'
+                      : 'hover:bg-background-hover text-foreground'
                   )}
                 >
-                  <File className="w-4 h-4 text-foreground-muted flex-shrink-0" />
-                  <span className="truncate">{file.displayPath}</span>
+                  <File className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate text-sm">{file.displayPath}</span>
                 </button>
               ))}
             </div>
@@ -411,27 +708,34 @@ export function ChatInput({
 
       {/* Unified input container */}
       <div className="bg-background-tertiary border border-border-secondary rounded-lg focus-within:border-foreground-muted transition-colors">
-        {/* Context bubbles */}
-        {contextItems.length > 0 && (
-          <div className="px-3 pt-2">
-            <ContextBubbleList
-              items={contextItems}
-              onRemove={removeContextItem}
-            />
+        {/* ContentEditable input with inline mention chips */}
+        <div className="relative">
+          <div
+            ref={editorRef}
+            contentEditable={!disabled}
+            suppressContentEditableWarning
+            onInput={handleInput}
+            onKeyDown={handleKeyDown}
+            onCopy={handleCopy}
+            onCut={handleCopy}
+            onPaste={handlePaste}
+            className={clsx(
+              'w-full px-3 py-2 bg-transparent text-sm text-foreground focus:outline-none overflow-y-auto',
+              'whitespace-pre-wrap break-words',
+              disabled && 'opacity-50 cursor-not-allowed',
+            )}
+            style={{ minHeight: '40px', maxHeight: '240px' }}
+            data-placeholder={placeholder}
+          >
+            {initialValue || ''}
           </div>
-        )}
-
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          disabled={disabled}
-          rows={1}
-          className="w-full px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-foreground-muted focus:outline-none resize-none"
-          style={{ height: '40px' }}
-        />
+          {/* Placeholder text */}
+          {!hasContent && !disabled && (
+            <div className="absolute top-0 left-0 px-3 py-2 text-sm text-foreground-muted pointer-events-none select-none">
+              {placeholder}
+            </div>
+          )}
+        </div>
 
         {/* Bottom bar: mode/model selectors + action buttons */}
         <div className="flex items-center px-1.5 pb-1.5">
@@ -467,10 +771,10 @@ export function ChatInput({
             <button
               type="button"
               onClick={() => handleSubmit()}
-              disabled={!input.trim() && contextItems.length === 0}
+              disabled={!hasContent}
               className={clsx(
                 'w-7 h-7 flex items-center justify-center rounded-full transition-colors',
-                (input.trim() || contextItems.length > 0)
+                hasContent
                   ? 'bg-foreground text-background hover:bg-foreground-secondary'
                   : 'text-foreground-muted'
               )}
