@@ -55,6 +55,7 @@ export interface AgentState {
   isStreaming: boolean;
   streamingContent: string;
   currentToolCall: ToolCall | null;
+  streamingToolCalls: ToolCall[];
   updateCount: number;
   draftInput: string;
 
@@ -64,6 +65,9 @@ export interface AgentState {
   appendStreamingContent: (content: string) => void;
   clearStreamingContent: () => void;
   setCurrentToolCall: (toolCall: ToolCall | null) => void;
+  addStreamingToolCall: (toolCall: ToolCall) => void;
+  updateStreamingToolCall: (id: string, updates: Partial<ToolCall>) => void;
+  clearStreamingToolCalls: () => void;
   clearMessages: () => void;
   setMessages: (messages: Message[]) => void;
   truncateAfterMessage: (messageId: string) => void;
@@ -75,6 +79,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   isStreaming: false,
   streamingContent: '',
   currentToolCall: null,
+  streamingToolCalls: [],
   updateCount: 0,
   draftInput: '',
 
@@ -107,8 +112,25 @@ export const useAgentStore = create<AgentState>((set) => ({
   setCurrentToolCall: (toolCall) =>
     set((state) => ({ currentToolCall: toolCall, updateCount: state.updateCount + 1 })),
 
+  addStreamingToolCall: (toolCall) =>
+    set((state) => ({
+      streamingToolCalls: [...state.streamingToolCalls, toolCall],
+      updateCount: state.updateCount + 1,
+    })),
+
+  updateStreamingToolCall: (id, updates) =>
+    set((state) => ({
+      streamingToolCalls: state.streamingToolCalls.map((t) =>
+        t.id === id ? { ...t, ...updates } : t
+      ),
+      updateCount: state.updateCount + 1,
+    })),
+
+  clearStreamingToolCalls: () =>
+    set((state) => ({ streamingToolCalls: [], updateCount: state.updateCount + 1 })),
+
   clearMessages: () =>
-    set((state) => ({ messages: [], streamingContent: '', updateCount: state.updateCount + 1 })),
+    set((state) => ({ messages: [], streamingContent: '', streamingToolCalls: [], updateCount: state.updateCount + 1 })),
 
   setMessages: (messages) =>
     set((state) => ({ messages, updateCount: state.updateCount + 1 })),

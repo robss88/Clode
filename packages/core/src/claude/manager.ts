@@ -229,11 +229,19 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
             if (block.type === 'tool_result') {
               const toolCall = currentToolCalls.get(block.tool_use_id);
               if (toolCall) {
-                toolCall.status = block.is_error ? 'error' : 'completed';
+                const isError = block.is_error === true;
+                toolCall.status = isError ? 'error' : 'completed';
+                const resultOutput = typeof block.content === 'string'
+                  ? block.content
+                  : Array.isArray(block.content)
+                    ? block.content.map((c: any) => c.text || JSON.stringify(c)).join('\n')
+                    : JSON.stringify(block.content);
+                toolCall.output = resultOutput;
+                console.log('[ClaudeCodeManager] SDK Tool result:', toolCall.name, 'is_error:', block.is_error, '(type:', typeof block.is_error, ') status:', toolCall.status);
                 const result: ToolResult = {
                   toolCallId: block.tool_use_id,
-                  output: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-                  isError: block.is_error || false,
+                  output: resultOutput,
+                  isError: isError,
                 };
                 this.emit('tool:complete', toolCall, result);
                 this.emit('chunk', {
@@ -496,11 +504,20 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
         if (block.type === 'tool_result') {
           const toolCall = currentToolCalls.get(block.tool_use_id);
           if (toolCall) {
-            toolCall.status = block.is_error ? 'error' : 'completed';
+            // Strict boolean check — CLI may send is_error as non-boolean truthy value
+            const isError = block.is_error === true;
+            toolCall.status = isError ? 'error' : 'completed';
+            const resultOutput = typeof block.content === 'string'
+              ? block.content
+              : Array.isArray(block.content)
+                ? block.content.map((c: any) => c.text || JSON.stringify(c)).join('\n')
+                : JSON.stringify(block.content);
+            toolCall.output = resultOutput;
+            console.log('[ClaudeCodeManager] Tool result:', toolCall.name, 'id:', block.tool_use_id, 'is_error:', block.is_error, '(type:', typeof block.is_error, ') status:', toolCall.status);
             const result: ToolResult = {
               toolCallId: block.tool_use_id,
-              output: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-              isError: block.is_error || false,
+              output: resultOutput,
+              isError: isError,
             };
             this.emit('tool:complete', toolCall, result);
             this.emit('chunk', {
@@ -508,6 +525,8 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
               content: result.output,
               toolResult: result,
             });
+          } else {
+            console.log('[ClaudeCodeManager] Tool result for unknown tool_use_id:', block.tool_use_id, 'known ids:', Array.from(currentToolCalls.keys()));
           }
         }
       }

@@ -21,7 +21,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import clsx from 'clsx';
 import type { Message, ToolCall, FileNode, ContextItem } from '@claude-agent/core';
-import { useUIStore } from '../../stores';
+import { useUIStore, useAgentStore } from '../../stores';
 import { ContextBubbleList } from './ContextBubble';
 import { ChatInput } from './ChatInput';
 
@@ -65,11 +65,12 @@ export function ChatInterface({
 
   // Mode selector (still needed for plan mode button check)
   const mode = useUIStore((state) => state.mode);
+  const streamingToolCalls = useAgentStore((state) => state.streamingToolCalls);
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent, currentToolCall]);
+  }, [messages, streamingContent, currentToolCall, streamingToolCalls]);
 
   // Drag & drop handlers
   const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -211,7 +212,7 @@ export function ChatInterface({
         </AnimatePresence>
 
         {/* Streaming content or tool activity */}
-        {isStreaming && (streamingContent || currentToolCall) && (
+        {isStreaming && (streamingContent || currentToolCall || streamingToolCalls.length > 0) && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -219,12 +220,25 @@ export function ChatInterface({
           >
             <div className="message-content message-content-assistant">
               {streamingContent && <MarkdownContent content={streamingContent} />}
-              {currentToolCall && (
-                <div className="mt-2">
-                  <ToolCallIndicator toolCall={{ ...currentToolCall, status: 'running' }} />
+              {/* Show all accumulated tool calls with their diffs live */}
+              {streamingToolCalls.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {streamingToolCalls.map((tc) => (
+                    <ToolCallIndicator
+                      key={tc.id}
+                      toolCall={tc}
+                      defaultExpanded
+                    />
+                  ))}
                 </div>
               )}
-              {!currentToolCall && (
+              {/* Show current running tool if not yet in streaming list */}
+              {currentToolCall && !streamingToolCalls.some((t) => t.id === currentToolCall.id) && (
+                <div className="mt-2">
+                  <ToolCallIndicator toolCall={{ ...currentToolCall, status: 'running' }} defaultExpanded />
+                </div>
+              )}
+              {!currentToolCall && !streamingContent && streamingToolCalls.length === 0 && (
                 <span className="inline-block w-2 h-4 bg-foreground animate-pulse-subtle ml-1" />
               )}
             </div>
@@ -560,8 +574,8 @@ function getStatusIcon(status: ToolCall['status']) {
   }
 }
 
-function ToolCallGroup({ toolCalls }: { toolCalls: ToolCall[] }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+function ToolCallGroup({ toolCalls, defaultExpanded = true }: { toolCalls: ToolCall[]; defaultExpanded?: boolean }) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   const completedCount = toolCalls.filter((t) => t.status === 'completed').length;
   const errorCount = toolCalls.filter((t) => t.status === 'error').length;
@@ -623,9 +637,9 @@ function ToolCallGroup({ toolCalls }: { toolCalls: ToolCall[] }) {
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="ml-3 mt-1 space-y-1 border-l-2 border-border pl-3">
+            <div className="mt-1 space-y-1 border-l-2 border-border ml-3 pl-3">
               {toolCalls.map((toolCall) => (
-                <ToolCallIndicator key={toolCall.id} toolCall={toolCall} />
+                <ToolCallIndicator key={toolCall.id} toolCall={toolCall} defaultExpanded />
               ))}
             </div>
           </motion.div>
@@ -647,8 +661,119 @@ function getToolCallDetail(toolCall: ToolCall): string | null {
   return null;
 }
 
-function ToolCallIndicator({ toolCall }: { toolCall: ToolCall }) {
-  const [showDetails, setShowDetails] = useState(false);
+function DiffLines({ lines, type, defaultMax }: { lines: string[]; type: 'add' | 'remove'; defaultMax: number }) {
+  const [isFullyExpanded, setIsFullyExpanded] = useState(false);
+  const visibleLines = isFullyExpanded ? lines : lines.slice(0, defaultMax);
+  const hiddenCount = lines.length - defaultMax;
+  const colorClass = type === 'remove' ? 'text-red-300/80' : 'text-green-300/80';
+  const prefixColorClass = type === 'remove' ? 'text-red-400/60' : 'text-green-400/60';
+  const prefix = type === 'remove' ? '-' : '+';
+  const bgClass = type === 'remove' ? 'bg-[#3c1618]' : 'bg-[#16301c]';
+
+  return (
+    <div className={clsx(bgClass, 'px-3 py-1.5')}>
+      <div className={clsx(!isFullyExpanded && 'max-h-48 overflow-y-auto')}>
+        {visibleLines.map((line, i) => (
+          <div key={i} className="flex">
+            <span className={clsx('select-none mr-2 flex-shrink-0', prefixColorClass)}>{prefix}</span>
+            <span className={clsx('whitespace-pre-wrap break-all', colorClass)}>{line}</span>
+          </div>
+        ))}
+      </div>
+      {hiddenCount > 0 && !isFullyExpanded && (
+        <button
+          type="button"
+          onClick={() => setIsFullyExpanded(true)}
+          className="text-foreground-muted/50 hover:text-foreground-muted mt-1 text-[10px]"
+        >
+          Show {hiddenCount} more lines
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ToolCallDetailView({ toolCall }: { toolCall: ToolCall }) {
+  const input = toolCall.input || {};
+  const name = toolCall.name.toLowerCase();
+
+  // Edit tool: show diff of old_string → new_string
+  if (name === 'edit' && input.old_string && input.new_string) {
+    const oldLines = String(input.old_string).split('\n');
+    const newLines = String(input.new_string).split('\n');
+    return (
+      <div className="ml-6 mt-1 mb-1.5 rounded overflow-hidden border border-border text-[11px] font-mono">
+        {oldLines.join('').trim() && (
+          <div className="border-b border-border">
+            <DiffLines lines={oldLines} type="remove" defaultMax={15} />
+          </div>
+        )}
+        <DiffLines lines={newLines} type="add" defaultMax={15} />
+      </div>
+    );
+  }
+
+  // Write tool: show content written
+  if (name === 'write' && input.content) {
+    const lines = String(input.content).split('\n');
+    return (
+      <div className="ml-6 mt-1 mb-1.5 rounded overflow-hidden border border-border text-[11px] font-mono">
+        <DiffLines lines={lines} type="add" defaultMax={20} />
+      </div>
+    );
+  }
+
+  // Bash tool: show command + output
+  if (name === 'bash') {
+    return (
+      <div className="ml-6 mt-1 mb-1.5 rounded overflow-hidden border border-border text-[11px] font-mono">
+        {!!input.command && (
+          <div className="bg-background-tertiary px-3 py-1.5 border-b border-border flex items-start gap-2">
+            <span className="select-none text-foreground-muted/50 flex-shrink-0">$</span>
+            <span className="text-foreground-secondary whitespace-pre-wrap break-all">{String(input.command).slice(0, 500)}</span>
+          </div>
+        )}
+        {toolCall.output && (
+          <div className="bg-background px-3 py-1.5 text-foreground-muted whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+            {toolCall.output.slice(0, 1500)}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Read tool: show file content from output
+  if ((name === 'read' || name === 'read_file') && toolCall.output) {
+    return (
+      <div className="ml-6 mt-1 mb-1.5 rounded overflow-hidden border border-border text-[11px] font-mono">
+        <div className="bg-background px-3 py-1.5 text-foreground-muted whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+          {toolCall.output.slice(0, 1500)}
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback: raw input/output
+  return (
+    <div className="ml-6 mt-0.5 mb-1 px-2 py-1.5 bg-background rounded text-[11px] font-mono text-foreground-muted overflow-x-auto">
+      <pre className="whitespace-pre-wrap break-all">
+        {JSON.stringify(input, null, 2).slice(0, 500)}
+      </pre>
+      {toolCall.output && (
+        <>
+          <div className="text-foreground-muted/60 mt-1.5 mb-1">Output:</div>
+          <pre className="whitespace-pre-wrap break-all">
+            {toolCall.output.slice(0, 500)}
+          </pre>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ToolCallIndicator({ toolCall, defaultExpanded = false }: { toolCall: ToolCall; defaultExpanded?: boolean }) {
+  const hasCodeChanges = ['edit', 'write', 'bash'].includes(toolCall.name.toLowerCase());
+  const [showDetails, setShowDetails] = useState(defaultExpanded && hasCodeChanges);
   const summary = getToolCallSummary(toolCall);
   const detail = getToolCallDetail(toolCall);
 
@@ -673,22 +798,18 @@ function ToolCallIndicator({ toolCall }: { toolCall: ToolCall }) {
         </div>
         <span className="mt-0.5 flex-shrink-0">{getStatusIcon(toolCall.status)}</span>
       </button>
-      {showDetails && (
-        <div className="ml-6 mt-0.5 mb-1 px-2 py-1.5 bg-background rounded text-[11px] font-mono text-foreground-muted overflow-x-auto">
-          <div className="text-foreground-muted/60 mb-1">Input:</div>
-          <pre className="whitespace-pre-wrap break-all">
-            {JSON.stringify(toolCall.input, null, 2).slice(0, 500)}
-          </pre>
-          {toolCall.output && (
-            <>
-              <div className="text-foreground-muted/60 mt-1.5 mb-1">Output:</div>
-              <pre className="whitespace-pre-wrap break-all">
-                {toolCall.output.slice(0, 500)}
-              </pre>
-            </>
-          )}
-        </div>
-      )}
+      <AnimatePresence>
+        {showDetails && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <ToolCallDetailView toolCall={toolCall} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

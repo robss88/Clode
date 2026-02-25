@@ -19,6 +19,9 @@ export function useClaudeAgent({ manager, onCheckpointTrigger }: UseClaudeAgentO
     appendStreamingContent,
     clearStreamingContent,
     setCurrentToolCall,
+    addStreamingToolCall,
+    updateStreamingToolCall,
+    clearStreamingToolCalls,
   } = useAgentStore();
 
   const messagesRef = useRef(messages);
@@ -33,11 +36,23 @@ export function useClaudeAgent({ manager, onCheckpointTrigger }: UseClaudeAgentO
         appendStreamingContent(chunk.content);
       } else if (chunk.type === 'tool_call' && chunk.toolCall) {
         setCurrentToolCall(chunk.toolCall);
+        // Add to streaming tool calls list (avoid duplicates)
+        const existing = useAgentStore.getState().streamingToolCalls;
+        if (!existing.some((t) => t.id === chunk.toolCall!.id)) {
+          addStreamingToolCall(chunk.toolCall);
+        }
+      } else if (chunk.type === 'tool_result' && chunk.toolResult) {
+        // Update the completed tool call in streaming list
+        updateStreamingToolCall(chunk.toolResult.toolCallId, {
+          status: chunk.toolResult.isError ? 'error' : 'completed',
+          output: chunk.toolResult.output,
+        });
       }
     };
 
     const handleMessage = (message: Message) => {
       clearStreamingContent();
+      clearStreamingToolCalls();
       addMessage(message);
       setStreaming(false);
       setCurrentToolCall(null);
@@ -85,7 +100,7 @@ export function useClaudeAgent({ manager, onCheckpointTrigger }: UseClaudeAgentO
       manager.off('tool:complete', handleToolComplete);
       manager.off('error', handleError);
     };
-  }, [manager, addMessage, appendStreamingContent, clearStreamingContent, setStreaming, setCurrentToolCall, onCheckpointTrigger]);
+  }, [manager, addMessage, appendStreamingContent, clearStreamingContent, setStreaming, setCurrentToolCall, addStreamingToolCall, updateStreamingToolCall, clearStreamingToolCalls, onCheckpointTrigger]);
 
   // Send message
   const sendMessage = useCallback(async (content: string) => {
