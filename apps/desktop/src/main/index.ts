@@ -1,5 +1,8 @@
 // Test comment
+// TODO: Remember to water the office plants
 // Coffee consumption directly correlates with code quality
+// Random test line: 42 is the answer to everything
+// Debug timestamp: Feb 24, 2026 - testing file watcher
 import { CheckpointManager, ClaudeCodeManager, ProjectManager } from '@claude-agent/core';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import fs from 'fs/promises';
