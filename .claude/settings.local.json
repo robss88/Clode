@@ -30,7 +30,13 @@
       "Bash(code --list-extensions:*)",
       "Bash(code --uninstall-extension:*)",
       "Bash(npm run build:extension:*)",
-      "Bash(npm run vscode:*)"
+      "Bash(npm run vscode:*)",
+      "Bash(cursor --install-extension /Users/robertavellar/Clode/apps/vscode/claude-agent-vscode-1.0.0.vsix --force)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); m=d.get\\(''contributes'',{}\\).get\\(''menus'',{}\\); print\\(json.dumps\\(m, indent=2\\)\\)\" echo \"\" fi done)",
+      "Bash(python3 -c \" import sys,json d=json.load\\(sys.stdin\\) cmds=d.get\\(''contributes'',{}\\).get\\(''commands'',[]\\) for c in cmds: if ''open'' in c.get\\(''title'',''''\\).lower\\(\\) or ''kilo'' == c.get\\(''title'',''''\\).lower\\(\\) or c.get\\(''title'',''''\\) == ''Kilo Code'': print\\(json.dumps\\(c, indent=2\\)\\) \" echo \"=== Activation ===\" cat \"$ext/package.json\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''activationEvents'',[]\\), indent=2\\)\\)\" echo \"=== Views ===\" cat \"$ext/package.json\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''contributes'',{}\\).get\\(''viewsContainers'',{}\\), indent=2\\)\\)\" fi done)",
+      "Bash(python3 -c \":*)"
     ]
   }
 }

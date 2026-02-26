@@ -26,9 +26,6 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Auto-open on activation
-  provider.createPanel();
-
   context.subscriptions.push(
     vscode.commands.registerCommand('claude-agent.createCheckpoint', async () => {
       const service = provider?.getService();

@@ -20,7 +20,8 @@
     "checkpoints"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onWebviewPanel:claude-agent"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -28,7 +29,8 @@
       {
         "command": "claude-agent.openPanel",
         "title": "Open Claude Agent",
-        "category": "Claude Agent"
+        "category": "Claude Agent",
+        "icon": "$(comment-discussion)"
       },
       {
         "command": "claude-agent.createCheckpoint",
@@ -70,6 +72,14 @@
         "when": "claude-agent.hasFocus"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "claude-agent.openPanel",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "Claude Agent",
       "properties": {
