@@ -11,7 +11,6 @@ import {
   Copy,
   Check,
   RotateCcw,
-  File,
   Upload,
   Play,
   ChevronRight,
@@ -22,7 +21,6 @@ import rehypeHighlight from 'rehype-highlight';
 import clsx from 'clsx';
 import type { Message, ToolCall, FileNode, ContextItem } from '@claude-agent/core';
 import { useUIStore, useAgentStore } from '../../stores';
-import { ContextBubbleList } from './ContextBubble';
 import { ChatInput } from './ChatInput';
 
 interface ChatInterfaceProps {
@@ -297,38 +295,6 @@ function parseFileContext(content: string): { files: Array<{ path: string; name:
   return { files, textContent };
 }
 
-function FileContextPills({ files }: { files: Array<{ path: string; name: string }> }) {
-  const [expanded, setExpanded] = useState(false);
-  if (files.length === 0) return null;
-
-  const shown = expanded ? files : files.slice(0, 3);
-  const remaining = files.length - 3;
-
-  return (
-    <div className="flex flex-wrap gap-1 mb-2">
-      {shown.map((file) => (
-        <span
-          key={file.path}
-          className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-background-hover border border-border rounded text-[11px] text-foreground-secondary"
-          title={file.path}
-        >
-          <File className="w-3 h-3" />
-          {file.name}
-        </span>
-      ))}
-      {!expanded && remaining > 0 && (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="inline-flex items-center px-1.5 py-0.5 text-[11px] text-foreground-muted hover:text-foreground transition-colors"
-        >
-          +{remaining} more
-        </button>
-      )}
-    </div>
-  );
-}
-
 function MessageBubble({
   message,
   isLastMessage,
@@ -436,24 +402,8 @@ function MessageBubble({
               onClick={!isFadedOut && canEdit ? startEditing : undefined}
             >
               {(() => {
-                if (isUser && message.context && message.context.length > 0) {
-                  const textContent = parseFileContext(message.content).textContent;
-                  return (
-                    <>
-                      <div className="mb-2">
-                        <ContextBubbleList items={message.context} compact />
-                      </div>
-                      <MarkdownContent content={textContent} />
-                    </>
-                  );
-                }
-                const { files, textContent } = isUser ? parseFileContext(message.content) : { files: [], textContent: message.content };
-                return (
-                  <>
-                    {files.length > 0 && <FileContextPills files={files} />}
-                    <MarkdownContent content={textContent} />
-                  </>
-                );
+                const { textContent } = isUser ? parseFileContext(message.content) : { textContent: message.content };
+                return <MarkdownContent content={textContent} />;
               })()}
               {/* Restore checkpoint — only on non-faded user messages */}
               {!isFadedOut && isUser && hasCheckpoint && onRestore && (
