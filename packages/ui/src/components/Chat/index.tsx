@@ -119,6 +119,44 @@ export function ChatInterface({
         </div>
       )}
 
+      <AnimatePresence mode="wait" initial={false}>
+      {messages.length === 0 && !isStreaming ? (
+        <motion.div
+          key="empty-state"
+          className="flex-1 flex flex-col items-center px-4"
+          style={{ justifyContent: 'center', paddingTop: '12vh' }}
+          exit={{ opacity: 0, y: 40, transition: { duration: 0.25, ease: 'easeIn' } }}
+        >
+          <motion.svg
+            width="40" height="40" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"
+            className="text-foreground-muted mb-3"
+          >
+            <path d="M7 1C7.5 5 5 7.5 1 7C5 7.5 7.5 10 7 15C7.5 11 10 7.5 15 8C11 7.5 7.5 5 7 1Z" fill="currentColor" opacity="0.5"/>
+            <path d="M12.5 1.5C12.7 3 13 3.3 14.5 3.5C13 3.7 12.7 4 12.5 5.5C12.3 4 12 3.7 10.5 3.5C12 3.3 12.3 3 12.5 1.5Z" fill="currentColor" opacity="0.35"/>
+          </motion.svg>
+          <p className="text-sm text-foreground-muted mb-6">How can I help you?</p>
+          <div className="w-full max-w-lg">
+            <ChatInput
+              fileTree={fileTree}
+              disabled={isStreaming}
+              isStreaming={isStreaming}
+              minHeight={100}
+              onSubmit={onSendMessage}
+              onInterrupt={onInterrupt}
+              onReadFile={onReadFile}
+              onModelChange={onModelChange}
+              dropdownDirection="up"
+              autoFocus
+            />
+          </div>
+        </motion.div>
+      ) : (
+      <motion.div
+        key="chat-state"
+        className="flex flex-col flex-1 min-h-0"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1, transition: { duration: 0.2, delay: 0.1 } }}
+      >
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto text-[13px]">
         <div className="py-4 space-y-3">
@@ -277,6 +315,9 @@ export function ChatInterface({
           autoFocus
         />
       </div>
+      </motion.div>
+      )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -157,6 +157,14 @@ export default function App() {
     const cleanupError = bridge.onClaudeError((error) => {
       if (!error.startsWith('[Debug]')) {
         useAgentStore.getState().setStreaming(false);
+        // Show error to user as a system message
+        const errorMsg: Message = {
+          id: `err-${Date.now()}`,
+          role: 'system',
+          content: `Error: ${error}`,
+          timestamp: Date.now(),
+        };
+        useAgentStore.getState().addMessage(errorMsg);
       }
     });
 
@@ -271,6 +279,9 @@ export default function App() {
     addMessage(userMessage);
     bridge.sendMessage(content, {
       extraFlags: modeFlags.length > 0 ? modeFlags : undefined,
+    }).catch((err) => {
+      setStreaming(false);
+      addSystemMessage(`Failed to send: ${err?.message || err}`);
     });
   }, [bridge, addMessage, setStreaming, addSystemMessage, restoredAtMessageId]);
 

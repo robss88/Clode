@@ -30,7 +30,10 @@
         "command": "claude-agent.openPanel",
         "title": "Open Claude Agent",
         "category": "Claude Agent",
-        "icon": "$(comment-discussion)"
+        "icon": {
+          "light": "assets/icons/claude-agent-light.svg",
+          "dark": "assets/icons/claude-agent-dark.svg"
+        }
       },
       {
         "command": "claude-agent.createCheckpoint",

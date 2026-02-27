@@ -296,10 +296,21 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
 
       let childProcess;
       try {
-        // Find claude in PATH or use common locations
+        // Find claude in PATH or common install locations
+        const homedir = process.env.HOME || process.env.USERPROFILE || '';
         const claudePath = process.env.CLAUDE_PATH || 'claude';
         console.log('[ClaudeCodeManager] Using claude path:', claudePath);
-        console.log('[ClaudeCodeManager] PATH:', process.env.PATH?.split(':').slice(0, 5).join(':') + '...');
+
+        // Ensure PATH includes common Claude CLI install locations
+        const extraPaths = [
+          `${homedir}/.local/bin`,
+          `${homedir}/.claude/local/bin`,
+          '/usr/local/bin',
+          '/usr/bin',
+          '/bin',
+        ].join(':');
+        const fullPath = env.PATH ? `${extraPaths}:${env.PATH}` : extraPaths;
+        console.log('[ClaudeCodeManager] PATH (first 5):', fullPath.split(':').slice(0, 5).join(':') + '...');
 
         // IMPORTANT: Use 'ignore' for stdin, clean env without ELECTRON vars, and detached
         // See: https://github.com/anthropics/claude-code/issues/771
@@ -307,8 +318,7 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
           cwd: this.config.workingDir,
           env: {
             ...env,
-            // Ensure we have a proper PATH that includes common node locations
-            PATH: env.PATH || '/usr/local/bin:/usr/bin:/bin',
+            PATH: fullPath,
           },
           stdio: ['ignore', 'pipe', 'pipe'],
           detached: true,

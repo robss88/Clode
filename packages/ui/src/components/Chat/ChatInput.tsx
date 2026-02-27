@@ -203,6 +203,7 @@ export interface ChatInputProps {
   fileTree?: FileNode | null;
   disabled?: boolean;
   isStreaming?: boolean;
+  minHeight?: number;
   onSubmit: (content: string, context?: ContextItem[]) => void;
   onInterrupt?: () => void;
   onCancel?: () => void;
@@ -218,6 +219,7 @@ export function ChatInput({
   fileTree,
   disabled = false,
   isStreaming = false,
+  minHeight = 40,
   onSubmit,
   onInterrupt,
   onCancel,
@@ -724,7 +726,7 @@ export function ChatInput({
               'whitespace-pre-wrap break-words',
               disabled && 'opacity-50 cursor-not-allowed',
             )}
-            style={{ minHeight: '40px', maxHeight: '240px' }}
+            style={{ minHeight: `${minHeight}px`, maxHeight: '240px' }}
             data-placeholder={placeholder}
           >
             {initialValue || ''}
