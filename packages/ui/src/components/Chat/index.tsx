@@ -123,8 +123,7 @@ export function ChatInterface({
       {messages.length === 0 && !isStreaming ? (
         <motion.div
           key="empty-state"
-          className="flex-1 flex flex-col items-center px-4"
-          style={{ justifyContent: 'center', paddingTop: '12vh' }}
+          className="flex-1 flex flex-col items-center justify-center px-4"
           exit={{ opacity: 0, y: 40, transition: { duration: 0.25, ease: 'easeIn' } }}
         >
           <motion.svg
@@ -140,7 +139,7 @@ export function ChatInterface({
               fileTree={fileTree}
               disabled={isStreaming}
               isStreaming={isStreaming}
-              minHeight={100}
+              minHeight={52}
               onSubmit={onSendMessage}
               onInterrupt={onInterrupt}
               onReadFile={onReadFile}
