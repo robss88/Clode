@@ -546,28 +546,68 @@ export default function App() {
     }
   }, [bridge]);
 
-  // Delete a chat tab
-  const handleDeleteChat = useCallback((chatId: string) => {
+  // Close a chat tab (hide it, don't delete)
+  const handleCloseChat = useCallback((chatId: string) => {
     const store = useChatSessionStore.getState();
     const branch = currentBranch || 'main';
-    const branchChats = store.getChatsForBranch(branch);
+    const openChats = store.getChatsForBranch(branch); // Only returns open chats now
 
-    if (branchChats.length <= 1) {
-      const newChat = store.createChat(branch, 'Chat 1');
-      useAgentStore.getState().clearMessages();
-      bridge.switchChatSession(newChat.id);
-      store.deleteChat(chatId);
-    } else {
-      if (store.activeChatId === chatId) {
-        const otherChat = branchChats.find((c) => c.id !== chatId);
+    // Close the chat (mark as closed, don't delete)
+    store.closeChat(chatId);
+
+    // If this was the active chat, switch to another open one
+    if (store.activeChatId === chatId) {
+      if (openChats.length > 1) {
+        const otherChat = openChats.find((c) => c.id !== chatId);
         if (otherChat) {
           useAgentStore.getState().setMessages(otherChat.messages);
           store.setActiveChatId(otherChat.id);
-          bridge.switchChatSession(otherChat.id);
+          bridge.switchChatSession(otherChat.id, otherChat.claudeSessionId);
         }
+      } else {
+        // No other open chats, create a new one
+        const newChat = store.createChat(branch, 'New Chat');
+        useAgentStore.getState().clearMessages();
+        bridge.switchChatSession(newChat.id);
       }
-      store.deleteChat(chatId);
     }
+  }, [bridge, currentBranch]);
+
+  // Reopen a closed chat
+  const handleReopenChat = useCallback((chatId: string) => {
+    const store = useChatSessionStore.getState();
+    store.openChat(chatId);
+
+    // Switch to the reopened chat
+    const chat = store.sessions[chatId];
+    if (chat) {
+      useAgentStore.getState().setMessages(chat.messages);
+      store.setActiveChatId(chatId);
+      bridge.switchChatSession(chatId, chat.claudeSessionId);
+    }
+  }, [bridge]);
+
+  // Permanently delete a chat
+  const handlePermanentlyDeleteChat = useCallback((chatId: string) => {
+    const store = useChatSessionStore.getState();
+    const branch = currentBranch || 'main';
+
+    // If deleting active chat, switch first
+    if (store.activeChatId === chatId) {
+      const openChats = store.getChatsForBranch(branch);
+      const otherChat = openChats.find((c) => c.id !== chatId);
+      if (otherChat) {
+        useAgentStore.getState().setMessages(otherChat.messages);
+        store.setActiveChatId(otherChat.id);
+        bridge.switchChatSession(otherChat.id, otherChat.claudeSessionId);
+      } else {
+        const newChat = store.createChat(branch, 'New Chat');
+        useAgentStore.getState().clearMessages();
+        bridge.switchChatSession(newChat.id);
+      }
+    }
+
+    store.permanentlyDeleteChat(chatId);
   }, [bridge, currentBranch]);
 
   if (!isReady) {
@@ -587,7 +627,9 @@ export default function App() {
         currentBranch={currentBranch}
         onSwitchChat={handleSwitchChat}
         onNewChat={handleNewChat}
-        onDeleteChat={handleDeleteChat}
+        onCloseChat={handleCloseChat}
+        onReopenChat={handleReopenChat}
+        onPermanentlyDeleteChat={handlePermanentlyDeleteChat}
       />
       <div className="flex-1 overflow-hidden">
         <ChatInterface

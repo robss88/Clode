@@ -176,6 +176,9 @@ export interface ChatSession {
   createdAt: number;
   lastActive: number;
   claudeSessionId?: string;
+  isOpen?: boolean;        // Whether tab is currently open (default: true)
+  isPinned?: boolean;      // Whether chat is pinned (optional future feature)
+  archivedAt?: number;     // Timestamp when archived (optional)
 }
 
 // ----------------------------------------------------------------------------

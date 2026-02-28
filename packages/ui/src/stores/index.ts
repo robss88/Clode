@@ -460,12 +460,16 @@ export interface ChatSessionState {
   sessions: Record<string, ChatSession>;
   activeChatId: string | null;
 
-  getChatsForBranch: (branch: string) => ChatSession[];
+  getChatsForBranch: (branch: string, includeClosed?: boolean) => ChatSession[];
   createChat: (branch: string, name: string) => ChatSession;
   setActiveChatId: (id: string | null) => void;
   updateChat: (id: string, updates: Partial<ChatSession>) => void;
   saveMessages: (id: string, messages: Message[]) => void;
   deleteChat: (id: string) => void;
+  closeChat: (id: string) => void;
+  openChat: (id: string) => void;
+  getClosedChats: (branch?: string) => ChatSession[];
+  permanentlyDeleteChat: (id: string) => void;
 }
 
 export const useChatSessionStore = create<ChatSessionState>()(
@@ -474,11 +478,12 @@ export const useChatSessionStore = create<ChatSessionState>()(
       sessions: {},
       activeChatId: null,
 
-      getChatsForBranch: (branch) => {
+      getChatsForBranch: (branch, includeClosed = false) => {
         const sessions = get().sessions;
         return Object.values(sessions)
-          .filter((s) => s.branch === branch)
-          .sort((a, b) => b.createdAt - a.createdAt);
+          .filter((s) => (s.branch === branch || s.branchName === branch) &&
+                        (includeClosed || s.isOpen !== false))
+          .sort((a, b) => a.createdAt - b.createdAt);
       },
 
       createChat: (branch, name) => {
@@ -491,6 +496,7 @@ export const useChatSessionStore = create<ChatSessionState>()(
           messages: [],
           createdAt: Date.now(),
           lastActive: Date.now(),
+          isOpen: true,
         };
         set((state) => ({
           sessions: { ...state.sessions, [id]: chat },
@@ -527,10 +533,54 @@ export const useChatSessionStore = create<ChatSessionState>()(
             activeChatId: state.activeChatId === id ? null : state.activeChatId,
           };
         }),
+
+      closeChat: (id) =>
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [id]: { ...state.sessions[id], isOpen: false }
+          }
+        })),
+
+      openChat: (id) =>
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [id]: { ...state.sessions[id], isOpen: true }
+          }
+        })),
+
+      getClosedChats: (branch) => {
+        const sessions = get().sessions;
+        return Object.values(sessions)
+          .filter(s => s.isOpen === false && (!branch || s.branch === branch || s.branchName === branch))
+          .sort((a, b) => (b.lastActive || b.createdAt) - (a.lastActive || a.createdAt));
+      },
+
+      permanentlyDeleteChat: (id) =>
+        set((state) => {
+          const { [id]: _, ...rest } = state.sessions;
+          return {
+            sessions: rest,
+            activeChatId: state.activeChatId === id ? null : state.activeChatId,
+          };
+        }),
     }),
     {
       name: 'claude-agent-chat-sessions',
       storage: createJSONStorage(() => storageProxy),
+      version: 2,
+      migrate: (persistedState: any, version: number) => {
+        if (version < 2) {
+          // Mark all existing chats as open
+          Object.values(persistedState.sessions || {}).forEach((chat: any) => {
+            if (chat.isOpen === undefined) {
+              chat.isOpen = true;
+            }
+          });
+        }
+        return persistedState;
+      },
     }
   )
 );

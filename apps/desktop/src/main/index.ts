@@ -3,6 +3,11 @@
 // Coffee consumption directly correlates with code quality
 // Random test line: 42 is the answer to everything
 // Debug timestamp: Feb 24, 2026 - testing file watcher
+// NEW TEST: Adding comment at 2026-02-27 to verify file watching
+// MARKER: This line added by Claude Code for testing
+// Quick brown fox jumps over the lazy dog - test line 1
+// The quick brown fox jumps over the lazy dog - test line 2
+// Testing real-time file sync and hot reload functionality
 import { CheckpointManager, ClaudeCodeManager, ProjectManager } from '@claude-agent/core';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import fs from 'fs/promises';

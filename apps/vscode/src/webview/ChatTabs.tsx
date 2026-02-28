@@ -2,19 +2,24 @@ import React from 'react';
 import { Plus, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useChatSessionStore } from '@claude-agent/ui';
+import { ChatHistoryDropdown } from './ChatHistoryDropdown';
 
 interface ChatTabsProps {
   currentBranch: string | null;
   onSwitchChat: (chatId: string) => void;
   onNewChat: () => void;
-  onDeleteChat: (chatId: string) => void;
+  onCloseChat: (chatId: string) => void;
+  onReopenChat: (chatId: string) => void;
+  onPermanentlyDeleteChat: (chatId: string) => void;
 }
 
 export function ChatTabs({
   currentBranch,
   onSwitchChat,
   onNewChat,
-  onDeleteChat,
+  onCloseChat,
+  onReopenChat,
+  onPermanentlyDeleteChat,
 }: ChatTabsProps) {
   const sessions = useChatSessionStore((s) => s.sessions);
   const activeChatId = useChatSessionStore((s) => s.activeChatId);
@@ -22,12 +27,13 @@ export function ChatTabs({
   const branchChats = React.useMemo(() => {
     if (!currentBranch) return [];
     return Object.values(sessions)
-      .filter((s) => s.branch === currentBranch || s.branchName === currentBranch)
+      .filter((s) => (s.branch === currentBranch || s.branchName === currentBranch) &&
+                     s.isOpen !== false)  // Only show open chats
       .sort((a, b) => (a.createdAt) - (b.createdAt));
   }, [sessions, currentBranch]);
 
   return (
-    <div className="flex items-center bg-background-secondary flex-shrink-0 overflow-hidden">
+    <div className="flex items-center bg-background-secondary flex-shrink-0 relative">
       <div className="flex-1 flex items-center overflow-x-auto scrollbar-none min-w-0">
         {branchChats.map((chat) => {
           const isActive = chat.id === activeChatId;
@@ -48,7 +54,7 @@ export function ChatTabs({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onDeleteChat(chat.id);
+                  onCloseChat(chat.id);
                 }}
                 className={clsx(
                   'flex-shrink-0 p-0.5 rounded transition-colors',
@@ -70,6 +76,11 @@ export function ChatTabs({
       >
         <Plus className="w-3.5 h-3.5 text-foreground-muted" />
       </button>
+      <ChatHistoryDropdown
+        currentBranch={currentBranch}
+        onReopenChat={onReopenChat}
+        onPermanentlyDelete={onPermanentlyDeleteChat}
+      />
     </div>
   );
 }
