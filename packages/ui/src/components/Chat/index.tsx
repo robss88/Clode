@@ -137,7 +137,7 @@ export function ChatInterface({
           <div className="w-full max-w-lg">
             <ChatInput
               fileTree={fileTree}
-              disabled={isStreaming}
+              disabled={false}
               isStreaming={isStreaming}
               minHeight={52}
               onSubmit={onSendMessage}
@@ -296,7 +296,7 @@ export function ChatInterface({
       <div className="px-3 py-2">
         <ChatInput
           fileTree={fileTree}
-          disabled={isStreaming}
+          disabled={false}
           isStreaming={isStreaming}
           onSubmit={onSendMessage}
           onInterrupt={onInterrupt}

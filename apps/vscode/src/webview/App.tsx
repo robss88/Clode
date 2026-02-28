@@ -162,18 +162,54 @@ export default function App() {
       if (chatId) {
         const chat = useChatSessionStore.getState().sessions[chatId];
         const allMessages = useAgentStore.getState().messages;
-        if (chat && chat.messages.length === 0) {
-          const firstUser = allMessages.find((m: Message) => m.role === 'user');
-          if (firstUser) {
-            const stripped = firstUser.content
+
+        // Update name if it's still "New Chat" or if this is the first message
+        if (chat && (chat.name === 'New Chat' || chat.messages.length === 0)) {
+          const userMessages = allMessages.filter((m: Message) => m.role === 'user');
+
+          // Update title based on first user message or after 2-3 exchanges
+          if (userMessages.length > 0) {
+            let titleContent = '';
+
+            // Use first user message primarily
+            const firstUser = userMessages[0];
+            titleContent = firstUser.content
               .replace(/<file\s+path="[^"]*">\n?[\s\S]*?\n?<\/file>/g, '')
               .replace(/^\n+/, '')
               .trim();
-            const firstLine = stripped.split(/[\n.!?]/)[0]?.trim() || stripped;
-            const name = firstLine.slice(0, 40).trim() || 'New Chat';
+
+            // If we have multiple messages and first was short, consider combining
+            if (titleContent.length < 20 && userMessages.length > 1) {
+              const secondUser = userMessages[1];
+              const secondContent = secondUser.content
+                .replace(/<file\s+path="[^"]*">\n?[\s\S]*?\n?<\/file>/g, '')
+                .replace(/^\n+/, '')
+                .trim();
+              if (secondContent.length > titleContent.length) {
+                titleContent = secondContent;
+              }
+            }
+
+            // Extract a clean title
+            const firstLine = titleContent.split(/[\n.!?]/)[0]?.trim() || titleContent;
+            let name = firstLine.slice(0, 50).trim();
+
+            // Clean up common patterns
+            name = name.replace(/^(please |can you |help me |i need |i want )/i, '');
+            name = name.replace(/['"]/g, '');
+
+            // Capitalize first letter
+            if (name.length > 0) {
+              name = name.charAt(0).toUpperCase() + name.slice(1);
+            }
+
+            // Final fallback
+            name = name || 'Chat Session';
+
             useChatSessionStore.getState().updateChat(chatId, { name });
           }
         }
+
         useChatSessionStore.getState().saveMessages(chatId, useAgentStore.getState().messages);
       }
     });
@@ -331,6 +367,53 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleCommandPalette]);
 
+  // Helper function to update chat title if needed
+  const updateChatTitle = useCallback(() => {
+    const chatId = useChatSessionStore.getState().activeChatId;
+    if (!chatId) return;
+
+    const chat = useChatSessionStore.getState().sessions[chatId];
+    const allMessages = useAgentStore.getState().messages;
+
+    // Update title if it's still "New Chat" and we have some messages
+    if (chat && chat.name === 'New Chat') {
+      const userMessages = allMessages.filter((m: Message) => m.role === 'user');
+
+      if (userMessages.length > 0) {
+        // Extract content from first substantial user message
+        let titleContent = '';
+        for (const msg of userMessages) {
+          const cleaned = msg.content
+            .replace(/<file\s+path="[^"]*">\n?[\s\S]*?\n?<\/file>/g, '')
+            .replace(/^\n+/, '')
+            .trim();
+          if (cleaned.length > 10) {
+            titleContent = cleaned;
+            break;
+          }
+        }
+
+        if (titleContent) {
+          // Extract a clean title
+          const firstLine = titleContent.split(/[\n.!?]/)[0]?.trim() || titleContent;
+          let name = firstLine.slice(0, 50).trim();
+
+          // Clean up common patterns
+          name = name.replace(/^(please |can you |help me |i need |i want |i'm |i am )/gi, '');
+          name = name.replace(/['"]/g, '');
+
+          // Capitalize first letter
+          if (name.length > 0) {
+            name = name.charAt(0).toUpperCase() + name.slice(1);
+          }
+
+          name = name || 'Chat Session';
+          useChatSessionStore.getState().updateChat(chatId, { name });
+        }
+      }
+    }
+  }, []);
+
   // Send message (with slash command interception)
   const handleSendMessage = useCallback(async (content: string, context?: ContextItem[]) => {
     // If we were in a restored state, truncate faded messages before sending
@@ -357,6 +440,7 @@ export default function App() {
             timestamp: Date.now(),
           };
           addMessage(userMsg);
+          updateChatTitle(); // Update title after user message
           const currentModel = useUIStore.getState().model;
           const mergedFlags = [...(options?.extraFlags || []), ...modeFlags];
           bridge.sendMessage(prompt, {
@@ -395,6 +479,7 @@ export default function App() {
             timestamp: Date.now(),
           };
           addMessage(userMsg);
+          updateChatTitle(); // Update title after user message
           if (result.message) {
             addSystemMessage(result.message);
           }
@@ -419,6 +504,7 @@ export default function App() {
       context: context && context.length > 0 ? context : undefined,
     };
     addMessage(userMessage);
+    updateChatTitle(); // Update title after user message
     const currentModel = useUIStore.getState().model;
     bridge.sendMessage(content, {
       model: currentModel || undefined,
@@ -427,7 +513,7 @@ export default function App() {
       setStreaming(false);
       addSystemMessage(`Failed to send: ${err?.message || err}`);
     });
-  }, [bridge, addMessage, setStreaming, addSystemMessage, restoredAtMessageId]);
+  }, [bridge, addMessage, setStreaming, addSystemMessage, restoredAtMessageId, updateChatTitle]);
 
   // Implement plan — leverages session resumption so Claude has full planning context
   const handleImplementPlan = useCallback(async (planContent: string) => {

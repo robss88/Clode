@@ -112,7 +112,7 @@
   }
 
   .message-content-assistant {
-    @apply text-foreground;
+    @apply text-foreground ml-6;
   }
 
   /* Code block */
