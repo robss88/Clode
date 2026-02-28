@@ -18,6 +18,10 @@ export interface ContextItem {
   content?: string;    // File content, selection text, etc. (loaded lazily)
   preview?: string;    // Short preview snippet
   metadata?: Record<string, unknown>; // Line range, language, etc.
+  // Image-specific fields:
+  imageData?: string;  // base64-encoded image data (without data:image/... prefix)
+  mimeType?: string;   // 'image/png', 'image/jpeg', 'image/gif', etc.
+  dimensions?: { width: number; height: number };
 }
 
 export interface Message {

@@ -144,6 +144,7 @@ export class ClaudeService {
       if (!this.claudeManager.running) {
         await this.claudeManager.spawn();
       }
+      console.log('[ClaudeService] Sending message with model:', options?.model || 'default');
       await this.claudeManager.sendMessage(content, options);
       return true;
     } catch (error) {
@@ -153,7 +154,9 @@ export class ClaudeService {
   }
 
   async setModel(model: string): Promise<boolean> {
-    // Model setting is passed through extraFlags on next message
+    if (!this.claudeManager) return false;
+    console.log('[ClaudeService] Setting model to:', model);
+    this.claudeManager.setModel(model);
     return true;
   }
 

@@ -25,5 +25,9 @@
   "packageManager": "npm@10.2.0",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@rollup/rollup-darwin-x64": "^4.59.0",
+    "esbuild": "^0.27.3"
   }
 }

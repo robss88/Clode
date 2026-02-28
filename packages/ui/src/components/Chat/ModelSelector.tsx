@@ -64,6 +64,8 @@ export function ModelSelector({ model, onModelChange, dropdownDirection = 'up' }
                   key={m.id}
                   type="button"
                   onClick={() => {
+                    console.log('[ModelSelector] Clicked model:', m.id);
+                    alert(`Switching to ${m.label}`);
                     onModelChange(m.id);
                     setIsOpen(false);
                   }}

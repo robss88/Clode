@@ -323,6 +323,9 @@ export interface UIState {
   layout: LayoutState;
   selectedFile: string | null;
   diffFile: string | null;
+  showCommandPalette: boolean;
+  showSettings: boolean;
+  extendedThinking: boolean;
 
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setMode: (mode: AgentMode) => void;
@@ -335,6 +338,9 @@ export interface UIState {
   setBottomPanelSize: (size: number) => void;
   setSelectedFile: (path: string | null) => void;
   setDiffFile: (path: string | null) => void;
+  toggleCommandPalette: () => void;
+  toggleSettings: () => void;
+  setExtendedThinking: (enabled: boolean) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -343,6 +349,9 @@ export const useUIStore = create<UIState>()(
       theme: 'dark',
       mode: 'agent' as AgentMode,
       model: 'sonnet',
+      showCommandPalette: false,
+      showSettings: false,
+      extendedThinking: false,
       layout: {
         leftPanel: { isOpen: true, size: 260 },
         rightPanel: { isOpen: true, size: 300 },
@@ -354,6 +363,9 @@ export const useUIStore = create<UIState>()(
       setTheme: (theme) => set({ theme }),
       setMode: (mode) => set({ mode }),
       setModel: (model) => set({ model }),
+      toggleCommandPalette: () => set((state) => ({ showCommandPalette: !state.showCommandPalette })),
+      toggleSettings: () => set((state) => ({ showSettings: !state.showSettings })),
+      setExtendedThinking: (enabled) => set({ extendedThinking: enabled }),
 
       toggleLeftPanel: () =>
         set((state) => ({
@@ -419,7 +431,7 @@ export const useUIStore = create<UIState>()(
     {
       name: 'claude-agent-ui',
       storage: createJSONStorage(() => storageProxy),
-      version: 1,
+      version: 2,
       migrate: (persistedState: any, version: number) => {
         if (version === 0) {
           // Migrate old mode values ('chat') to new ones ('ask')
@@ -427,6 +439,12 @@ export const useUIStore = create<UIState>()(
           if (!VALID_MODES.includes(persistedState.mode)) {
             persistedState.mode = persistedState.mode === 'chat' ? 'ask' : 'agent';
           }
+        }
+        if (version < 2) {
+          // Add new fields with defaults
+          persistedState.showCommandPalette = false;
+          persistedState.showSettings = false;
+          persistedState.extendedThinking = false;
         }
         return persistedState;
       },

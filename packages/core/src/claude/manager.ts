@@ -6,6 +6,7 @@ import type {
   Message,
   ToolCall,
   ToolResult,
+  ContextItem,
 } from '../types';
 
 // We'll try to import the official SDK, but fall back to CLI approach if not available
@@ -78,6 +79,7 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
   }
 
   setModel(model: string): void {
+    console.log('[ClaudeCodeManager] Model set to:', model);
     this.config.model = model;
   }
 
@@ -89,8 +91,11 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
     return this.sessionId;
   }
 
-  async sendMessage(content: string, options?: { extraFlags?: string[]; model?: string }): Promise<void> {
+  async sendMessage(content: string, options?: { extraFlags?: string[]; model?: string; context?: ContextItem[] }): Promise<void> {
     console.log('[ClaudeCodeManager] sendMessage called with:', content.slice(0, 50));
+    if (options?.context) {
+      console.log('[ClaudeCodeManager] Context items:', options.context.length);
+    }
 
     if (!this.isRunning) {
       throw new Error('Claude Code is not running - call spawn() first');
@@ -105,6 +110,7 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
       role: 'user',
       content,
       timestamp: Date.now(),
+      context: options?.context,
     };
     this.messageHistory.push(userMessage);
 
@@ -276,8 +282,14 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
     }
   }
 
-  private async sendMessageWithCLI(content: string, options?: { extraFlags?: string[]; model?: string }): Promise<void> {
+  private async sendMessageWithCLI(content: string, options?: { extraFlags?: string[]; model?: string; context?: ContextItem[] }): Promise<void> {
     console.log('[ClaudeCodeManager] Sending message via CLI fallback:', content.slice(0, 50));
+
+    // Note: Image support via CLI is limited. Images in context are logged but not sent
+    // For full image support, the Anthropic API should be used directly
+    if (options?.context?.some(item => item.type === 'image')) {
+      console.warn('[ClaudeCodeManager] Images detected in context. CLI does not support images - consider using API directly');
+    }
 
     const { spawn } = require('child_process');
     // Create clean environment without Electron-specific vars that could interfere
@@ -434,6 +446,7 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
     // Use option model override, or fall back to config
     const model = options?.model || this.config.model;
     if (model) {
+      console.log('[ClaudeCodeManager] Using model for CLI:', model);
       args.push('--model', model);
     }
 

@@ -12,6 +12,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { useBridge } from './bridge/context';
 import { vscodeStorage } from './bridge/vscode-bridge';
 import { ChatTabs } from './ChatTabs';
+import { CommandPalette, CommandItem } from '@claude-agent/ui';
+import { Settings } from '@claude-agent/ui';
+import { Bot, Map, MessageCircle, Zap, Cpu, FileText, Brain } from 'lucide-react';
 
 // Configure Zustand persistence to use VS Code webview state (survives reloads)
 configureStorage(vscodeStorage);
@@ -23,6 +26,8 @@ export default function App() {
   const [restoredAtMessageId, setRestoredAtMessageId] = useState<string | null>(null);
   const [checkpointMessageIds, setCheckpointMessageIds] = useState<Set<string>>(new Set());
   const [isReady, setIsReady] = useState(false);
+
+  const { showCommandPalette, toggleCommandPalette, showSettings, toggleSettings } = useUIStore();
 
   const {
     messages,
@@ -91,7 +96,11 @@ export default function App() {
   // Set up event listeners
   useEffect(() => {
     const cleanupChunk = bridge.onClaudeChunk((chunk) => {
-      const { appendStreamingContent, setCurrentToolCall, setStreaming, clearStreamingContent, addMessage } = useAgentStore.getState();
+      const {
+        appendStreamingContent, setCurrentToolCall, setStreaming,
+        clearStreamingContent, addMessage,
+        addStreamingToolCall, updateStreamingToolCall,
+      } = useAgentStore.getState();
 
       if (chunk.type === 'init' && chunk.sessionId) {
         const chatId = useChatSessionStore.getState().activeChatId;
@@ -102,8 +111,22 @@ export default function App() {
         appendStreamingContent(chunk.content);
         setCurrentToolCall(null);
       } else if (chunk.type === 'tool_call' && chunk.toolCall) {
+        // Check if this is an update to an existing tool call (input arriving later)
+        const existing = useAgentStore.getState().streamingToolCalls.find(
+          (t) => t.id === chunk.toolCall.id
+        );
+        if (existing) {
+          updateStreamingToolCall(chunk.toolCall.id, { input: chunk.toolCall.input });
+        } else {
+          addStreamingToolCall(chunk.toolCall);
+        }
         setCurrentToolCall(chunk.toolCall);
-      } else if (chunk.type === 'tool_result') {
+      } else if (chunk.type === 'tool_result' && chunk.toolResult) {
+        // Update the matching tool call with its result status and output
+        updateStreamingToolCall(chunk.toolResult.toolCallId, {
+          status: chunk.toolResult.isError ? 'error' : 'completed',
+          output: chunk.toolResult.output,
+        });
         setCurrentToolCall(null);
       } else if (chunk.type === 'complete') {
         // Just clean up streaming state — the 'message' event handler
@@ -113,13 +136,14 @@ export default function App() {
     });
 
     const cleanupMessage = bridge.onClaudeMessage(async (message) => {
-      const { clearStreamingContent, setCurrentToolCall, addMessage, setStreaming, streamingContent } = useAgentStore.getState();
+      const { clearStreamingContent, setCurrentToolCall, addMessage, setStreaming, streamingContent, clearStreamingToolCalls } = useAgentStore.getState();
 
       if (!message.content && streamingContent) {
         message.content = streamingContent;
       }
 
       clearStreamingContent();
+      clearStreamingToolCalls();
       setCurrentToolCall(null);
       addMessage(message);
       setStreaming(false);
@@ -194,6 +218,119 @@ export default function App() {
     addMessage(msg);
   }, [addMessage]);
 
+  // Command Palette commands
+  const commands: CommandItem[] = [
+    // Mode commands
+    {
+      id: 'mode-ask',
+      label: 'Ask Mode',
+      description: 'Conversation only, no file changes',
+      icon: <MessageCircle className="w-4 h-4" />,
+      keywords: ['mode', 'chat', 'talk'],
+      category: 'mode',
+      action: () => useUIStore.getState().setMode('ask'),
+    },
+    {
+      id: 'mode-plan',
+      label: 'Plan Mode',
+      description: 'Explore code and create implementation plans',
+      icon: <Map className="w-4 h-4" />,
+      keywords: ['mode', 'plan', 'design'],
+      category: 'mode',
+      action: () => useUIStore.getState().setMode('plan'),
+    },
+    {
+      id: 'mode-agent',
+      label: 'Agent Mode',
+      description: 'Full autonomous agent with all tools',
+      icon: <Bot className="w-4 h-4" />,
+      keywords: ['mode', 'agent', 'auto'],
+      category: 'mode',
+      action: () => useUIStore.getState().setMode('agent'),
+    },
+    {
+      id: 'mode-yolo',
+      label: 'YOLO Mode',
+      description: 'Full autonomy, no guardrails',
+      icon: <Zap className="w-4 h-4" />,
+      keywords: ['mode', 'yolo', 'fast'],
+      category: 'mode',
+      action: () => useUIStore.getState().setMode('yolo'),
+    },
+    // Model commands
+    {
+      id: 'model-sonnet',
+      label: 'Sonnet',
+      description: 'Switch to Claude Sonnet (fast & capable)',
+      icon: <Cpu className="w-4 h-4" />,
+      keywords: ['model', 'sonnet'],
+      category: 'model',
+      action: () => bridge.setModel('sonnet'),
+    },
+    {
+      id: 'model-opus',
+      label: 'Opus',
+      description: 'Switch to Claude Opus (most powerful)',
+      icon: <Cpu className="w-4 h-4" />,
+      keywords: ['model', 'opus'],
+      category: 'model',
+      action: () => bridge.setModel('opus'),
+    },
+    {
+      id: 'model-haiku',
+      label: 'Haiku',
+      description: 'Switch to Claude Haiku (fastest & cheapest)',
+      icon: <Cpu className="w-4 h-4" />,
+      keywords: ['model', 'haiku'],
+      category: 'model',
+      action: () => bridge.setModel('haiku'),
+    },
+    // Action commands
+    {
+      id: 'clear-chat',
+      label: 'Clear Conversation',
+      description: 'Clear all messages in current chat',
+      icon: <FileText className="w-4 h-4" />,
+      keywords: ['clear', 'reset', 'delete'],
+      category: 'action',
+      action: () => useAgentStore.getState().clearMessages(),
+    },
+    {
+      id: 'toggle-thinking',
+      label: 'Toggle Extended Thinking',
+      description: 'Enable/disable extended reasoning mode',
+      icon: <Brain className="w-4 h-4" />,
+      keywords: ['thinking', 'reasoning', 'extended'],
+      category: 'action',
+      action: () => {
+        const current = useUIStore.getState().extendedThinking;
+        useUIStore.getState().setExtendedThinking(!current);
+      },
+    },
+    // Settings
+    {
+      id: 'open-settings',
+      label: 'Settings',
+      description: 'Open settings panel',
+      icon: <FileText className="w-4 h-4" />,
+      keywords: ['settings', 'config', 'preferences'],
+      category: 'settings',
+      action: () => useUIStore.getState().toggleSettings(),
+    },
+  ];
+
+  // Keyboard shortcut for command palette
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        toggleCommandPalette();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleCommandPalette]);
+
   // Send message (with slash command interception)
   const handleSendMessage = useCallback(async (content: string, context?: ContextItem[]) => {
     // If we were in a restored state, truncate faded messages before sending
@@ -220,13 +357,16 @@ export default function App() {
             timestamp: Date.now(),
           };
           addMessage(userMsg);
+          const currentModel = useUIStore.getState().model;
           const mergedFlags = [...(options?.extraFlags || []), ...modeFlags];
           bridge.sendMessage(prompt, {
             ...options,
+            model: currentModel || undefined,
             extraFlags: mergedFlags.length > 0 ? mergedFlags : undefined,
           });
         },
         onSetModel: (model) => {
+          useUIStore.getState().setModel(model);
           bridge.setModel(model);
         },
         onSetMode: (mode) => {
@@ -258,8 +398,10 @@ export default function App() {
           if (result.message) {
             addSystemMessage(result.message);
           }
+          const currentModel = useUIStore.getState().model;
           const mergedFlags = [...(result.cliFlags || []), ...modeFlags];
           bridge.sendMessage(result.cliPrompt, {
+            model: currentModel || undefined,
             extraFlags: mergedFlags.length > 0 ? mergedFlags : undefined,
           });
           return;
@@ -277,7 +419,9 @@ export default function App() {
       context: context && context.length > 0 ? context : undefined,
     };
     addMessage(userMessage);
+    const currentModel = useUIStore.getState().model;
     bridge.sendMessage(content, {
+      model: currentModel || undefined,
       extraFlags: modeFlags.length > 0 ? modeFlags : undefined,
     }).catch((err) => {
       setStreaming(false);
@@ -298,6 +442,7 @@ export default function App() {
     setStreaming(false);
     clearStreamingContent();
     setCurrentToolCall(null);
+    useAgentStore.getState().clearStreamingToolCalls();
   }, [bridge, setStreaming, clearStreamingContent, setCurrentToolCall]);
 
   // Restore to message — restores file checkpoint and fades subsequent messages
@@ -462,6 +607,19 @@ export default function App() {
           onModelChange={(model) => bridge.setModel(model)}
         />
       </div>
+
+      {/* Command Palette */}
+      <CommandPalette
+        isOpen={showCommandPalette}
+        onClose={toggleCommandPalette}
+        commands={commands}
+      />
+
+      {/* Settings Panel */}
+      <Settings
+        isOpen={showSettings}
+        onClose={toggleSettings}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Square, File, Slash } from 'lucide-react';
+import { Send, Square, File, Slash, Brain } from 'lucide-react';
 import clsx from 'clsx';
 import type { ContextItem, FileNode } from '@claude-agent/core';
 import { useUIStore } from '../../stores';
@@ -195,6 +195,36 @@ function getTextBeforeCursor(el: HTMLElement): string {
   return getPlainText(tempDiv);
 }
 
+// ─── Image Helper Functions ─────────────────────────────────────────
+
+/** Convert File/Blob to base64 with dimensions */
+async function fileToImageData(file: File | Blob): Promise<{
+  dataUrl: string;
+  base64: string;
+  mimeType: string;
+  dimensions: { width: number; height: number };
+} | null> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      const img = new Image();
+      img.onload = () => {
+        resolve({
+          dataUrl,
+          base64: dataUrl.split(',')[1],
+          mimeType: file.type,
+          dimensions: { width: img.width, height: img.height },
+        });
+      };
+      img.onerror = () => resolve(null);
+      img.src = dataUrl;
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
+}
+
 // ─── Component ──────────────────────────────────────────────────────
 
 export interface ChatInputProps {
@@ -235,6 +265,13 @@ export function ChatInput({
   const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   const [hasContent, setHasContent] = useState(!!initialValue);
+  const [attachedImages, setAttachedImages] = useState<Array<{
+    id: string;
+    name: string;
+    dataUrl: string;
+    mimeType: string;
+    dimensions: { width: number; height: number };
+  }>>([]);
 
   const editorRef = useRef<HTMLDivElement>(null);
   const mentionListRef = useRef<HTMLDivElement>(null);
@@ -443,7 +480,7 @@ export function ChatInput({
     const text = getPlainText(el).replace(/\n$/, '').trim();
     const mentions = extractMentions(el);
 
-    if (!text && mentions.length === 0) return;
+    if (!text && mentions.length === 0 && attachedImages.length === 0) return;
     if (disabled) return;
 
     // Build content — prepend file contents
@@ -472,14 +509,31 @@ export function ChatInput({
       }
     }
 
+    // Add images
+    if (attachedImages.length > 0) {
+      attachedImages.forEach(img => {
+        const item: ContextItem = {
+          id: img.id,
+          type: 'image',
+          name: img.name,
+          imageData: img.dataUrl.split(',')[1], // base64 without prefix
+          mimeType: img.mimeType,
+          dimensions: img.dimensions,
+        };
+        resolvedContext.push(item);
+      });
+    }
+
     onSubmit(content, resolvedContext.length > 0 ? resolvedContext : undefined);
 
     // Clear editor
     el.innerHTML = '';
     setHasContent(false);
     setShowMentions(false);
+    setAttachedImages([]);
     updateHeight();
-  }, [disabled, onSubmit, onReadFile, updateHeight]);
+  }, [disabled, onSubmit, onReadFile, updateHeight, attachedImages]);
+
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // Handle slash command navigation
@@ -556,8 +610,32 @@ export function ChatInput({
   }, []);
 
   // Handle paste — reconstruct mention chips if pasted from another ChatInput
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
     e.preventDefault();
+
+    // Check for images in clipboard first
+    const items = Array.from(e.clipboardData.items);
+    const imageItems = items.filter(item => item.type.startsWith('image/'));
+
+    if (imageItems.length > 0) {
+      for (const item of imageItems) {
+        const blob = item.getAsFile();
+        if (blob) {
+          const imageData = await fileToImageData(blob);
+          if (imageData) {
+            const id = `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            setAttachedImages(prev => [...prev, {
+              id,
+              name: `screenshot-${Date.now()}.png`,
+              dataUrl: imageData.dataUrl,
+              mimeType: imageData.mimeType,
+              dimensions: imageData.dimensions,
+            }]);
+          }
+        }
+      }
+      return;
+    }
 
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
@@ -739,17 +817,65 @@ export function ChatInput({
           )}
         </div>
 
+        {/* Image attachments preview */}
+        {attachedImages.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-3 pt-2 border-t border-border">
+            {attachedImages.map((img) => (
+              <div key={img.id} className="relative group">
+                <img
+                  src={img.dataUrl}
+                  alt={img.name}
+                  className="h-20 w-20 object-cover rounded border border-border hover:border-foreground-muted transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setAttachedImages(prev => prev.filter(i => i.id !== img.id))}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-error text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs font-bold shadow-lg"
+                >
+                  ×
+                </button>
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent rounded-b px-1 py-0.5">
+                  <span className="text-[9px] text-white truncate block">{img.name}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Bottom bar: mode/model selectors + action buttons */}
         <div className="flex items-center px-1.5 pb-1.5">
           <ModeSelector mode={mode} onModeChange={setMode} dropdownDirection={dropdownDirection} />
           <ModelSelector
             model={model}
             onModelChange={(m) => {
+              console.log('[ChatInput] Model changed to:', m);
               setModel(m);
+              console.log('[ChatInput] Calling onModelChange prop');
               onModelChange?.(m);
             }}
             dropdownDirection={dropdownDirection}
           />
+
+          {/* Extended Thinking Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              const current = useUIStore.getState().extendedThinking;
+              useUIStore.getState().setExtendedThinking(!current);
+            }}
+            className={clsx(
+              'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors ml-1',
+              'hover:bg-background-hover',
+              useUIStore.getState().extendedThinking
+                ? 'bg-accent/10 text-accent'
+                : 'text-foreground-muted'
+            )}
+            title="Extended thinking mode"
+          >
+            <Brain className="w-3.5 h-3.5" />
+            {useUIStore.getState().extendedThinking && <span>Thinking</span>}
+          </button>
+
           {onCancel && (
             <button
               type="button"

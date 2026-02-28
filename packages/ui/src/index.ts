@@ -6,6 +6,12 @@ export { GitPanel } from './components/GitPanel';
 export { FileExplorer } from './components/FileExplorer';
 export { DiffViewer } from './components/DiffViewer';
 export { EmbeddedTerminal } from './components/Terminal';
+export { CommandPalette } from './components/CommandPalette';
+export { Settings } from './components/Settings';
+
+// Types for new components
+export type { CommandItem } from './components/CommandPalette';
+export type { MCPServer } from './components/Settings';
 
 // Stores
 export {

@@ -379,9 +379,9 @@ export function Layout({
 
           {!isNarrow && (
             <button
-              onClick={() => setTheme(useUIStore.getState().theme === 'dark' ? 'light' : 'dark')}
+              onClick={() => useUIStore.getState().toggleSettings()}
               className="btn-icon"
-              title="Toggle theme"
+              title="Settings"
             >
               <Settings className="w-4 h-4" />
             </button>

@@ -121,7 +121,80 @@ registerCommand({
           'Usage: /model <model-name>\nExamples: /model opus, /model sonnet, /model claude-sonnet-4-5-20250929',
       };
     }
-    context.onSetModel(args.trim());
-    return { type: 'local', message: `Model switched to: ${args.trim()}` };
+    const modelName = args.trim();
+    // Update UI store so the model selector reflects the change
+    context.onSetModel(modelName);
+    return { type: 'local', message: `Model switched to: ${modelName}` };
+  },
+});
+
+registerCommand({
+  name: 'thinking',
+  description: 'Toggle extended thinking mode',
+  usage: '/thinking',
+  execute: () => {
+    // Access UI store - we'll need to import it
+    const { useUIStore } = require('../stores');
+    const current = useUIStore.getState().extendedThinking;
+    useUIStore.getState().setExtendedThinking(!current);
+    return {
+      type: 'local',
+      message: `Extended thinking ${!current ? 'enabled' : 'disabled'}.`,
+    };
+  },
+});
+
+registerCommand({
+  name: 'copy',
+  description: 'Copy code blocks from conversation',
+  usage: '/copy',
+  execute: () => {
+    return {
+      type: 'local',
+      message: 'Interactive code block selector (coming soon)',
+    };
+  },
+});
+
+registerCommand({
+  name: 'rewind',
+  description: 'Rewind to previous checkpoint',
+  usage: '/rewind',
+  execute: () => {
+    return {
+      type: 'local',
+      message: 'Use the checkpoint panel on the right to navigate history',
+    };
+  },
+});
+
+registerCommand({
+  name: 'mode',
+  description: 'Switch agent mode',
+  usage: '/mode <ask|plan|agent|yolo>',
+  execute: (args, context) => {
+    const mode = args.trim().toLowerCase();
+    const validModes = ['ask', 'plan', 'agent', 'yolo'];
+    if (!validModes.includes(mode)) {
+      return {
+        type: 'error',
+        message: `Invalid mode. Use one of: ${validModes.join(', ')}`,
+      };
+    }
+    if (context.onSetMode) {
+      context.onSetMode(mode);
+    }
+    return { type: 'local', message: `Switched to ${mode} mode.` };
+  },
+});
+
+registerCommand({
+  name: 'settings',
+  description: 'Open settings panel',
+  usage: '/settings',
+  execute: () => {
+    const { useUIStore } = require('../stores');
+    useUIStore.getState().toggleSettings();
+    return { type: 'local' };
   },
 });

@@ -255,24 +255,16 @@ export function ChatInterface({
           >
             <div className="message-content message-content-assistant">
               {streamingContent && <MarkdownContent content={streamingContent} />}
-              {/* Show all accumulated tool calls with their diffs live */}
-              {streamingToolCalls.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {streamingToolCalls.map((tc) => (
-                    <ToolCallIndicator
-                      key={tc.id}
-                      toolCall={tc}
-                      defaultExpanded
-                    />
-                  ))}
-                </div>
-              )}
-              {/* Show current running tool if not yet in streaming list */}
-              {currentToolCall && !streamingToolCalls.some((t) => t.id === currentToolCall.id) && (
-                <div className="mt-2">
-                  <ToolCallIndicator toolCall={{ ...currentToolCall, status: 'running' }} defaultExpanded />
-                </div>
-              )}
+              {/* Compact tool group — collapsed by default, expandable for details */}
+              {(() => {
+                const allTools = [...streamingToolCalls];
+                if (currentToolCall && !allTools.some((t) => t.id === currentToolCall.id)) {
+                  allTools.push({ ...currentToolCall, status: 'running' as const });
+                }
+                return allTools.length > 0 ? (
+                  <ToolCallGroup toolCalls={allTools} defaultExpanded={false} />
+                ) : null;
+              })()}
               {!currentToolCall && !streamingContent && streamingToolCalls.length === 0 && (
                 <span className="inline-block w-2 h-4 bg-foreground animate-pulse-subtle ml-1" />
               )}
@@ -281,7 +273,7 @@ export function ChatInterface({
         )}
 
         {/* Show thinking indicator when streaming but no content yet */}
-        {isStreaming && !streamingContent && !currentToolCall && (
+        {isStreaming && !streamingContent && !currentToolCall && streamingToolCalls.length === 0 && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -564,7 +556,7 @@ function getStatusIcon(status: ToolCall['status']) {
   }
 }
 
-function ToolCallGroup({ toolCalls, defaultExpanded = true }: { toolCalls: ToolCall[]; defaultExpanded?: boolean }) {
+function ToolCallGroup({ toolCalls, defaultExpanded = false }: { toolCalls: ToolCall[]; defaultExpanded?: boolean }) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   const completedCount = toolCalls.filter((t) => t.status === 'completed').length;
@@ -629,7 +621,7 @@ function ToolCallGroup({ toolCalls, defaultExpanded = true }: { toolCalls: ToolC
           >
             <div className="mt-1 space-y-1 border-l-2 border-border ml-3 pl-3">
               {toolCalls.map((toolCall) => (
-                <ToolCallIndicator key={toolCall.id} toolCall={toolCall} defaultExpanded />
+                <ToolCallIndicator key={toolCall.id} toolCall={toolCall} />
               ))}
             </div>
           </motion.div>
