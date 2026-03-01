@@ -8,7 +8,7 @@ import {
   useChatSessionStore,
   useUIStore,
 } from '@claude-agent/ui';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { useBridge } from './bridge/context';
 import { vscodeStorage } from './bridge/vscode-bridge';
 import { ChatTabs } from './ChatTabs';
@@ -26,6 +26,11 @@ export default function App() {
   const [restoredAtMessageId, setRestoredAtMessageId] = useState<string | null>(null);
   const [checkpointMessageIds, setCheckpointMessageIds] = useState<Set<string>>(new Set());
   const [isReady, setIsReady] = useState(false);
+
+  // Message queue for handling multiple messages while streaming
+  // Using ref for immediate updates without React state batching delays
+  const messageQueueRef = useRef<Array<{content: string; context?: ContextItem[]}>>([]);
+  const [messageQueueVersion, setMessageQueueVersion] = useState(0); // Trigger for queue processing
 
   const { showCommandPalette, toggleCommandPalette, showSettings, toggleSettings } = useUIStore();
 
@@ -416,6 +421,26 @@ export default function App() {
 
   // Send message (with slash command interception)
   const handleSendMessage = useCallback(async (content: string, context?: ContextItem[]) => {
+    // If streaming, queue the message instead
+    if (isStreaming) {
+      // Use ref for immediate update without React batching
+      messageQueueRef.current.push({ content, context });
+
+      // Add the user message to the UI immediately so user sees it was queued
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content,
+        timestamp: Date.now(),
+        context: context && context.length > 0 ? context : undefined,
+      };
+      addMessage(userMessage);
+
+      // Trigger queue processing check
+      setMessageQueueVersion(v => v + 1);
+      return;
+    }
+
     // If we were in a restored state, truncate faded messages before sending
     if (restoredAtMessageId) {
       const currentMessages = useAgentStore.getState().messages;
@@ -513,7 +538,25 @@ export default function App() {
       setStreaming(false);
       addSystemMessage(`Failed to send: ${err?.message || err}`);
     });
-  }, [bridge, addMessage, setStreaming, addSystemMessage, restoredAtMessageId, updateChatTitle]);
+  }, [bridge, addMessage, setStreaming, addSystemMessage, restoredAtMessageId, updateChatTitle, isStreaming]);
+
+  // Process message queue when streaming ends
+  useEffect(() => {
+    if (!isStreaming && messageQueueRef.current.length > 0) {
+      // Get and remove the first message from queue
+      const nextMessage = messageQueueRef.current.shift();
+
+      if (nextMessage) {
+        // Small delay to ensure UI updates and prevent rapid-fire
+        const timer = setTimeout(() => {
+          // Process the queued message
+          handleSendMessage(nextMessage.content, nextMessage.context);
+        }, 100);
+
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isStreaming, messageQueueVersion, handleSendMessage]);
 
   // Implement plan — leverages session resumption so Claude has full planning context
   const handleImplementPlan = useCallback(async (planContent: string) => {
@@ -529,6 +572,9 @@ export default function App() {
     clearStreamingContent();
     setCurrentToolCall(null);
     useAgentStore.getState().clearStreamingToolCalls();
+    // Clear message queue on interrupt
+    messageQueueRef.current = [];
+    setMessageQueueVersion(v => v + 1);
   }, [bridge, setStreaming, clearStreamingContent, setCurrentToolCall]);
 
   // Restore to message — restores file checkpoint and fades subsequent messages
