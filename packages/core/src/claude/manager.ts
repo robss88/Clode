@@ -83,6 +83,10 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
     this.config.model = model;
   }
 
+  getModel(): string | undefined {
+    return this.config.model;
+  }
+
   setSessionId(id: string | null): void {
     this.sessionId = id;
   }

@@ -155,8 +155,25 @@ export class ClaudeService {
 
   async setModel(model: string): Promise<boolean> {
     if (!this.claudeManager) return false;
-    console.log('[ClaudeService] Setting model to:', model);
+
+    const currentModel = this.claudeManager.getModel();
+    console.log('[ClaudeService] Switching model from', currentModel, 'to', model);
+
+    // Update the model in the manager config
     this.claudeManager.setModel(model);
+
+    // If the model actually changed, clear the session
+    // This ensures the next message starts a new session with the correct model
+    if (currentModel !== model) {
+      console.log('[ClaudeService] Model changed, clearing session for fresh start');
+      this.claudeManager.setSessionId(null);
+
+      // Also clear our chat session mapping
+      if (this.currentChatSessionId) {
+        this.claudeSessionIds.delete(this.currentChatSessionId);
+      }
+    }
+
     return true;
   }
 

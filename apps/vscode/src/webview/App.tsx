@@ -778,7 +778,17 @@ export default function App() {
           restoredAtMessageId={restoredAtMessageId}
           onReadFile={(path) => bridge.readFile(path)}
           onImplementPlan={handleImplementPlan}
-          onModelChange={(model) => bridge.setModel(model)}
+          onModelChange={(model) => {
+            console.log('[App.tsx] ModelSelector onModelChange called with:', model);
+            console.log('[App.tsx] Updating UIStore model to:', model);
+            useUIStore.getState().setModel(model);
+            console.log('[App.tsx] Calling bridge.setModel with:', model);
+            bridge.setModel(model).then((result) => {
+              console.log('[App.tsx] bridge.setModel result:', result);
+            }).catch((error) => {
+              console.error('[App.tsx] bridge.setModel error:', error);
+            });
+          }}
         />
       </div>
 
