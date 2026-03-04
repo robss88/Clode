@@ -46,6 +46,11 @@ export function configureStorage(storage: StateStorage) {
 
 export type AgentMode = 'ask' | 'plan' | 'agent' | 'yolo';
 
+// Streaming block types for interleaved content
+export type StreamingBlock =
+  | { type: 'text'; content: string; id: string }
+  | { type: 'tool'; toolCall: ToolCall; id: string };
+
 // ============================================================================
 // Agent Store - Chat and Claude Code state
 // ============================================================================
@@ -53,21 +58,25 @@ export type AgentMode = 'ask' | 'plan' | 'agent' | 'yolo';
 export interface AgentState {
   messages: Message[];
   isStreaming: boolean;
-  streamingContent: string;
+  streamingContent: string; // Deprecated - kept for compatibility
   currentToolCall: ToolCall | null;
-  streamingToolCalls: ToolCall[];
+  streamingToolCalls: ToolCall[]; // Deprecated - kept for compatibility
+  streamingBlocks: StreamingBlock[]; // New: ordered content blocks
   updateCount: number;
   draftInput: string;
 
   addMessage: (message: Message) => void;
   updateMessage: (id: string, updates: Partial<Message>) => void;
   setStreaming: (isStreaming: boolean) => void;
-  appendStreamingContent: (content: string) => void;
-  clearStreamingContent: () => void;
+  appendStreamingContent: (content: string) => void; // Deprecated
+  clearStreamingContent: () => void; // Deprecated
   setCurrentToolCall: (toolCall: ToolCall | null) => void;
-  addStreamingToolCall: (toolCall: ToolCall) => void;
-  updateStreamingToolCall: (id: string, updates: Partial<ToolCall>) => void;
-  clearStreamingToolCalls: () => void;
+  addStreamingToolCall: (toolCall: ToolCall) => void; // Deprecated
+  updateStreamingToolCall: (id: string, updates: Partial<ToolCall>) => void; // Deprecated
+  clearStreamingToolCalls: () => void; // Deprecated
+  appendStreamingBlock: (type: 'text' | 'tool', data: string | ToolCall) => void;
+  updateStreamingToolBlock: (toolId: string, updates: Partial<ToolCall>) => void;
+  clearStreamingBlocks: () => void;
   clearMessages: () => void;
   setMessages: (messages: Message[]) => void;
   truncateAfterMessage: (messageId: string) => void;
@@ -80,6 +89,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   streamingContent: '',
   currentToolCall: null,
   streamingToolCalls: [],
+  streamingBlocks: [],
   updateCount: 0,
   draftInput: '',
 
@@ -129,8 +139,68 @@ export const useAgentStore = create<AgentState>((set) => ({
   clearStreamingToolCalls: () =>
     set((state) => ({ streamingToolCalls: [], updateCount: state.updateCount + 1 })),
 
+  appendStreamingBlock: (type, data) =>
+    set((state) => {
+      const blocks = [...state.streamingBlocks];
+
+      if (type === 'text' && typeof data === 'string') {
+        // Check if last block is text, if so append to it
+        const lastBlock = blocks[blocks.length - 1];
+        if (lastBlock?.type === 'text') {
+          lastBlock.content += data;
+        } else {
+          // Create new text block
+          blocks.push({
+            type: 'text',
+            content: data,
+            id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          });
+        }
+      } else if (type === 'tool' && typeof data !== 'string') {
+        // Add new tool block
+        blocks.push({
+          type: 'tool',
+          toolCall: data as ToolCall,
+          id: `tool-${(data as ToolCall).id}`,
+        });
+      }
+
+      return {
+        streamingBlocks: blocks,
+        updateCount: state.updateCount + 1,
+      };
+    }),
+
+  updateStreamingToolBlock: (toolId, updates) =>
+    set((state) => ({
+      streamingBlocks: state.streamingBlocks.map((block) => {
+        if (block.type === 'tool' && block.toolCall.id === toolId) {
+          return {
+            ...block,
+            toolCall: { ...block.toolCall, ...updates },
+          };
+        }
+        return block;
+      }),
+      updateCount: state.updateCount + 1,
+    })),
+
+  clearStreamingBlocks: () =>
+    set((state) => ({
+      streamingBlocks: [],
+      streamingContent: '',
+      streamingToolCalls: [],
+      updateCount: state.updateCount + 1
+    })),
+
   clearMessages: () =>
-    set((state) => ({ messages: [], streamingContent: '', streamingToolCalls: [], updateCount: state.updateCount + 1 })),
+    set((state) => ({
+      messages: [],
+      streamingContent: '',
+      streamingToolCalls: [],
+      streamingBlocks: [],
+      updateCount: state.updateCount + 1
+    })),
 
   setMessages: (messages) =>
     set((state) => ({ messages, updateCount: state.updateCount + 1 })),

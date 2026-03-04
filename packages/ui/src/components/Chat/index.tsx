@@ -64,11 +64,12 @@ export function ChatInterface({
   // Mode selector (still needed for plan mode button check)
   const mode = useUIStore((state) => state.mode);
   const streamingToolCalls = useAgentStore((state) => state.streamingToolCalls);
+  const streamingBlocks = useAgentStore((state) => state.streamingBlocks);
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent, currentToolCall, streamingToolCalls]);
+  }, [messages, streamingContent, currentToolCall, streamingToolCalls, streamingBlocks]);
 
   // Drag & drop handlers
   const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -246,34 +247,60 @@ export function ChatInterface({
           })()}
         </AnimatePresence>
 
-        {/* Streaming content or tool activity */}
-        {isStreaming && (streamingContent || currentToolCall || streamingToolCalls.length > 0) && (
+        {/* Streaming content */}
+        {isStreaming && (streamingBlocks.length > 0 || streamingContent || currentToolCall || streamingToolCalls.length > 0) && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             className="px-4"
           >
             <div className="message-content message-content-assistant">
-              {streamingContent && <MarkdownContent content={streamingContent} />}
-              {/* Compact tool group — collapsed by default, expandable for details */}
-              {(() => {
-                const allTools = [...streamingToolCalls];
-                if (currentToolCall && !allTools.some((t) => t.id === currentToolCall.id)) {
-                  allTools.push({ ...currentToolCall, status: 'running' as const });
-                }
-                return allTools.length > 0 ? (
-                  <ToolCallGroup toolCalls={allTools} defaultExpanded={false} />
-                ) : null;
-              })()}
-              {!currentToolCall && !streamingContent && streamingToolCalls.length === 0 && (
+              {/* Render streaming blocks in order */}
+              {streamingBlocks.length > 0 ? (
+                streamingBlocks.map((block) => {
+                  if (block.type === 'text') {
+                    return <MarkdownContent key={block.id} content={block.content} />;
+                  } else if (block.type === 'tool') {
+                    return (
+                      <div key={block.id} className="my-1">
+                        <ToolCallIndicator
+                          toolCall={block.toolCall}
+                          defaultExpanded={false}
+                          inline={true}
+                        />
+                      </div>
+                    );
+                  }
+                  return null;
+                })
+              ) : (
+                <>
+                  {streamingContent && <MarkdownContent content={streamingContent} />}
+                  {(() => {
+                    const allTools = [...streamingToolCalls];
+                    if (currentToolCall && !allTools.some((t) => t.id === currentToolCall.id)) {
+                      allTools.push({ ...currentToolCall, status: 'running' as const });
+                    }
+                    return allTools.length > 0 ? (
+                      <ToolCallGroup toolCalls={allTools} defaultExpanded={false} />
+                    ) : null;
+                  })()}
+                </>
+              )}
+              {!currentToolCall && !streamingContent && streamingToolCalls.length === 0 && streamingBlocks.length === 0 && (
                 <span className="inline-block w-2 h-4 bg-foreground animate-pulse-subtle ml-1" />
               )}
             </div>
           </motion.div>
         )}
 
+        {/* CLI Activity status bar - thin indicator of what Claude is doing */}
+        {isStreaming && (
+          <CliActivityBar streamingBlocks={streamingBlocks} currentToolCall={currentToolCall} />
+        )}
+
         {/* Show thinking indicator when streaming but no content yet */}
-        {isStreaming && !streamingContent && !currentToolCall && streamingToolCalls.length === 0 && (
+        {isStreaming && !streamingContent && !currentToolCall && streamingToolCalls.length === 0 && streamingBlocks.length === 0 && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -675,6 +702,74 @@ function DiffLines({ lines, type, defaultMax }: { lines: string[]; type: 'add' |
   );
 }
 
+/** Thin status bar showing current CLI activity */
+function CliActivityBar({ streamingBlocks, currentToolCall }: { streamingBlocks: import('../../stores').StreamingBlock[]; currentToolCall?: ToolCall | null }) {
+  // Find the latest activity to display
+  const lastToolBlock = [...streamingBlocks].reverse().find((b) => b.type === 'tool');
+  const activeToolCall = currentToolCall || (lastToolBlock?.type === 'tool' ? lastToolBlock.toolCall : null);
+
+  // Count completed tools
+  const completedTools = streamingBlocks.filter(
+    (b) => b.type === 'tool' && (b.toolCall.status === 'completed' || b.toolCall.status === 'error')
+  ).length;
+  const totalTools = streamingBlocks.filter((b) => b.type === 'tool').length;
+
+  let statusText = 'Working...';
+  let statusDetail = '';
+
+  if (activeToolCall) {
+    const name = activeToolCall.name.toLowerCase();
+    const input = activeToolCall.input || {};
+    if (name === 'read' || name === 'read_file') {
+      statusText = 'Reading';
+      statusDetail = input.file_path ? String(input.file_path).split('/').pop() || '' : '';
+    } else if (name === 'edit') {
+      statusText = 'Editing';
+      statusDetail = input.file_path ? String(input.file_path).split('/').pop() || '' : '';
+    } else if (name === 'write') {
+      statusText = 'Writing';
+      statusDetail = input.file_path ? String(input.file_path).split('/').pop() || '' : '';
+    } else if (name === 'bash') {
+      statusText = 'Running';
+      statusDetail = input.command ? String(input.command).slice(0, 40) : 'command';
+    } else if (name === 'glob') {
+      statusText = 'Searching files';
+      statusDetail = input.pattern ? String(input.pattern) : '';
+    } else if (name === 'grep') {
+      statusText = 'Searching';
+      statusDetail = input.pattern ? `"${String(input.pattern).slice(0, 30)}"` : '';
+    } else if (name === 'todowrite') {
+      statusText = 'Planning';
+      statusDetail = '';
+    } else {
+      statusText = activeToolCall.name;
+      statusDetail = '';
+    }
+
+    if (activeToolCall.status === 'completed') {
+      statusText = 'Thinking...';
+      statusDetail = '';
+    }
+  }
+
+  return (
+    <div className="px-4 py-1">
+      <div className="flex items-center gap-2 text-[11px] text-foreground-muted">
+        <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
+        <span className="truncate">
+          {statusText}
+          {statusDetail && <span className="text-foreground-muted/70"> {statusDetail}</span>}
+        </span>
+        {totalTools > 0 && (
+          <span className="ml-auto flex-shrink-0 tabular-nums">
+            {completedTools}/{totalTools} tools
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ToolCallDetailView({ toolCall }: { toolCall: ToolCall }) {
   const input = toolCall.input || {};
   const name = toolCall.name.toLowerCase();
@@ -753,11 +848,22 @@ function ToolCallDetailView({ toolCall }: { toolCall: ToolCall }) {
   );
 }
 
-function ToolCallIndicator({ toolCall, defaultExpanded = false }: { toolCall: ToolCall; defaultExpanded?: boolean }) {
+function ToolCallIndicator({ toolCall, defaultExpanded = false, inline = false }: { toolCall: ToolCall; defaultExpanded?: boolean; inline?: boolean }) {
   const hasCodeChanges = ['edit', 'write', 'bash'].includes(toolCall.name.toLowerCase());
   const [showDetails, setShowDetails] = useState(defaultExpanded && hasCodeChanges);
   const summary = getToolCallSummary(toolCall);
   const detail = getToolCallDetail(toolCall);
+
+  // Inline mode for interleaved display
+  if (inline) {
+    return (
+      <div className="inline-flex items-center gap-1.5 text-xs text-foreground-secondary bg-background-tertiary px-2 py-0.5 rounded-md">
+        <span className="flex-shrink-0">{getToolIcon(toolCall.name)}</span>
+        <span>{summary}</span>
+        <span className="flex-shrink-0">{getStatusIcon(toolCall.status)}</span>
+      </div>
+    );
+  }
 
   return (
     <div>

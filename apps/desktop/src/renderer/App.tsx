@@ -74,22 +74,45 @@ export default function App() {
   // Set up event listeners
   useEffect(() => {
     const cleanupChunk = window.electronAPI.onClaudeChunk((chunk) => {
-      const { appendStreamingContent, setCurrentToolCall } = useAgentStore.getState();
+      const {
+        appendStreamingContent,
+        setCurrentToolCall,
+        appendStreamingBlock,
+        updateStreamingToolBlock,
+      } = useAgentStore.getState();
 
       if (chunk.type === 'text') {
+        // Append text to streaming blocks
+        appendStreamingBlock('text', chunk.content);
+        // Also update legacy streamingContent for backward compatibility
         appendStreamingContent(chunk.content);
         setCurrentToolCall(null);
       } else if (chunk.type === 'tool_call' && chunk.toolCall) {
+        // Add tool block in sequence
+        appendStreamingBlock('tool', chunk.toolCall);
         setCurrentToolCall(chunk.toolCall);
-      } else if (chunk.type === 'tool_result') {
+      } else if (chunk.type === 'tool_result' && chunk.toolResult) {
+        // Update the tool block with result
+        updateStreamingToolBlock(chunk.toolResult.toolCallId, {
+          status: chunk.toolResult.isError ? 'error' : 'completed',
+          output: chunk.toolResult.output,
+        });
         setCurrentToolCall(null);
       }
     });
 
     const cleanupMessage = window.electronAPI.onClaudeMessage(async (message) => {
-      const { clearStreamingContent, setCurrentToolCall, addMessage, setStreaming, updateMessage } = useAgentStore.getState();
+      const {
+        clearStreamingContent,
+        clearStreamingBlocks,
+        setCurrentToolCall,
+        addMessage,
+        setStreaming,
+        updateMessage,
+      } = useAgentStore.getState();
 
-      clearStreamingContent();
+      clearStreamingBlocks(); // Clear the new streaming blocks
+      clearStreamingContent(); // Also clear legacy streamingContent
       setCurrentToolCall(null);
       addMessage(message);
       setStreaming(false);
@@ -108,7 +131,10 @@ export default function App() {
 
     const cleanupError = window.electronAPI.onClaudeError((error) => {
       if (!error.startsWith('[Debug]')) {
-        useAgentStore.getState().setStreaming(false);
+        const state = useAgentStore.getState();
+        state.setStreaming(false);
+        state.clearStreamingBlocks();
+        state.setCurrentToolCall(null);
       }
     });
 
@@ -187,7 +213,11 @@ export default function App() {
             timestamp: Date.now(),
           };
           addMessage(userMsg);
-          await window.electronAPI.sendMessage(prompt, options);
+          const sent = await window.electronAPI.sendMessage(prompt, options);
+          if (!sent) {
+            setStreaming(false);
+            addSystemMessage('Claude is not running. Try restarting the project.');
+          }
         },
         onSetModel: (model) => {
           window.electronAPI.setModel(model);
@@ -220,9 +250,13 @@ export default function App() {
           if (result.message) {
             addSystemMessage(result.message);
           }
-          await window.electronAPI.sendMessage(result.cliPrompt, {
+          const cliSent = await window.electronAPI.sendMessage(result.cliPrompt, {
             extraFlags: result.cliFlags,
           });
+          if (!cliSent) {
+            setStreaming(false);
+            addSystemMessage('Claude is not running. Try restarting the project.');
+          }
           return;
         }
       }
@@ -238,7 +272,11 @@ export default function App() {
       timestamp: Date.now(),
     };
     addMessage(userMessage);
-    await window.electronAPI.sendMessage(content);
+    const sent = await window.electronAPI.sendMessage(content);
+    if (!sent) {
+      setStreaming(false);
+      addSystemMessage('Claude is not running. Try restarting the project.');
+    }
   }, [addMessage, setStreaming, addSystemMessage]);
 
   // Interrupt
@@ -247,6 +285,7 @@ export default function App() {
     setStreaming(false);
     clearStreamingContent();
     setCurrentToolCall(null);
+    useAgentStore.getState().clearStreamingBlocks();
   }, [setStreaming, clearStreamingContent, setCurrentToolCall]);
 
   // Checkout a commit
@@ -347,23 +386,47 @@ export default function App() {
 
   // Branch management
   const handleCreateBranch = useCallback(async (name: string) => {
+    // Interrupt any active streaming before creating new branch
+    if (useAgentStore.getState().isStreaming) {
+      await window.electronAPI.interruptClaude();
+    }
+    const state = useAgentStore.getState();
+    state.setStreaming(false);
+    state.clearStreamingBlocks();
+    state.setCurrentToolCall(null);
     await window.electronAPI.createSession(name);
-    useAgentStore.getState().clearMessages();
+    state.clearMessages();
     await refreshBranches();
     await refreshCommits();
   }, [refreshBranches, refreshCommits]);
 
   const handleSwitchBranch = useCallback(async (branchName: string) => {
+    // Interrupt any active streaming before switching
+    if (useAgentStore.getState().isStreaming) {
+      await window.electronAPI.interruptClaude();
+    }
+    const state = useAgentStore.getState();
+    state.setStreaming(false);
+    state.clearStreamingBlocks();
+    state.setCurrentToolCall(null);
     await window.electronAPI.switchGitBranch(branchName);
-    useAgentStore.getState().clearMessages();
+    state.clearMessages();
     await refreshBranches();
     await refreshCommits();
     await refreshFileTree();
   }, [refreshBranches, refreshCommits, refreshFileTree]);
 
   // New chat on current branch (clear messages, keep checkpoints)
-  const handleNewChat = useCallback(() => {
-    useAgentStore.getState().clearMessages();
+  const handleNewChat = useCallback(async () => {
+    // Interrupt any active streaming before starting new chat
+    if (useAgentStore.getState().isStreaming) {
+      await window.electronAPI.interruptClaude();
+    }
+    const state = useAgentStore.getState();
+    state.clearMessages();
+    state.setStreaming(false);
+    state.clearStreamingBlocks();
+    state.setCurrentToolCall(null);
   }, []);
 
   // Open folder
@@ -473,6 +536,10 @@ export default function App() {
             onRestoreToMessage={handleRestoreToMessage}
             onEditMessage={handleEditMessage}
             onReadFile={(path) => window.electronAPI.readFile(path)}
+            onModelChange={(model) => {
+              window.electronAPI.setModel(model);
+              addSystemMessage(`Model switched to: ${model}`);
+            }}
           />
         </div>
 
