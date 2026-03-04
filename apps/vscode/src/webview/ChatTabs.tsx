@@ -1,7 +1,7 @@
 import React from 'react';
 import { Plus, X } from 'lucide-react';
 import clsx from 'clsx';
-import { useChatSessionStore } from '@claude-agent/ui';
+import { useChatSessionStore, useAgentStore } from '@claude-agent/ui';
 import { ChatHistoryDropdown } from './ChatHistoryDropdown';
 
 interface ChatTabsProps {
@@ -23,6 +23,7 @@ export function ChatTabs({
 }: ChatTabsProps) {
   const sessions = useChatSessionStore((s) => s.sessions);
   const activeChatId = useChatSessionStore((s) => s.activeChatId);
+  const chatStreams = useAgentStore((s) => s.chatStreams);
 
   const branchChats = React.useMemo(() => {
     if (!currentBranch) return [];
@@ -37,6 +38,7 @@ export function ChatTabs({
       <div className="flex-1 flex items-center overflow-x-auto scrollbar-none min-w-0">
         {branchChats.map((chat) => {
           const isActive = chat.id === activeChatId;
+          const isRunning = chatStreams[chat.id]?.isStreaming === true;
           return (
             <div
               key={chat.id}
@@ -50,6 +52,9 @@ export function ChatTabs({
                 if (!isActive) onSwitchChat(chat.id);
               }}
             >
+              {isRunning && (
+                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-accent animate-pulse" title="Running" />
+              )}
               <span className="truncate flex-1">{chat.name}</span>
               <button
                 onClick={(e) => {

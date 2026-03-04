@@ -34,5 +34,5 @@ export { parseSlashCommand, executeCommand, getAvailableCommands, getModeFlags }
 
 // Types
 export type { AgentMode } from './stores';
-export type { AgentState, CheckpointState, ChatSessionState, SessionState, ProjectState, UIState } from './stores';
+export type { AgentState, ChatStreamState, CheckpointState, ChatSessionState, SessionState, ProjectState, UIState } from './stores';
 export type { CommandResult, CommandContext, SendMessageOptions } from './commands';

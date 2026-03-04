@@ -76,6 +76,7 @@ export default function App() {
         if (chat.messages.length > 0) {
           useAgentStore.getState().setMessages(chat.messages);
         }
+        useAgentStore.getState().setActiveChatId(chat.id);
         useChatSessionStore.getState().setActiveChatId(chat.id);
 
         // Load file tree for @ mentions
@@ -98,62 +99,119 @@ export default function App() {
     return cleanup;
   }, [bridge]);
 
-  // Set up event listeners
+  // Set up event listeners — events are now tagged with chatId from ClaudeService
   useEffect(() => {
-    const cleanupChunk = bridge.onClaudeChunk((chunk) => {
-      const {
-        appendStreamingContent, setCurrentToolCall, setStreaming,
-        clearStreamingContent, addMessage,
-        addStreamingToolCall, updateStreamingToolCall,
-      } = useAgentStore.getState();
+    const cleanupChunk = bridge.onClaudeChunk((data: any) => {
+      const chatId = data.chatId as string | undefined;
+      const store = useAgentStore.getState();
 
-      if (chunk.type === 'init' && chunk.sessionId) {
-        const chatId = useChatSessionStore.getState().activeChatId;
+      if (data.type === 'init' && data.sessionId) {
+        const targetChatId = chatId || useChatSessionStore.getState().activeChatId;
+        if (targetChatId) {
+          useChatSessionStore.getState().updateChat(targetChatId, { claudeSessionId: data.sessionId });
+        }
+      } else if (data.type === 'text') {
         if (chatId) {
-          useChatSessionStore.getState().updateChat(chatId, { claudeSessionId: chunk.sessionId });
-        }
-      } else if (chunk.type === 'text') {
-        appendStreamingContent(chunk.content);
-        setCurrentToolCall(null);
-      } else if (chunk.type === 'tool_call' && chunk.toolCall) {
-        // Check if this is an update to an existing tool call (input arriving later)
-        const existing = useAgentStore.getState().streamingToolCalls.find(
-          (t) => t.id === chunk.toolCall.id
-        );
-        if (existing) {
-          updateStreamingToolCall(chunk.toolCall.id, { input: chunk.toolCall.input });
+          store.appendChatStreamContent(chatId, data.content);
+          store.setChatToolCall(chatId, null);
         } else {
-          addStreamingToolCall(chunk.toolCall);
+          store.appendStreamingContent(data.content);
+          store.setCurrentToolCall(null);
         }
-        setCurrentToolCall(chunk.toolCall);
-      } else if (chunk.type === 'tool_result' && chunk.toolResult) {
-        // Update the matching tool call with its result status and output
-        updateStreamingToolCall(chunk.toolResult.toolCallId, {
-          status: chunk.toolResult.isError ? 'error' : 'completed',
-          output: chunk.toolResult.output,
-        });
-        setCurrentToolCall(null);
-      } else if (chunk.type === 'complete') {
-        // Just clean up streaming state — the 'message' event handler
-        // will add the final message with its proper ID (used for checkpoints)
-        setCurrentToolCall(null);
+      } else if (data.type === 'tool_call' && data.toolCall) {
+        if (chatId) {
+          const stream = store.getChatStream(chatId);
+          const existing = stream.streamingToolCalls.find(
+            (t: any) => t.id === data.toolCall.id
+          );
+          if (existing) {
+            store.updateChatStreamingToolCall(chatId, data.toolCall.id, { input: data.toolCall.input });
+          } else {
+            store.addChatStreamingToolCall(chatId, data.toolCall);
+          }
+          store.setChatToolCall(chatId, data.toolCall);
+        } else {
+          const existing = store.streamingToolCalls.find(
+            (t) => t.id === data.toolCall.id
+          );
+          if (existing) {
+            store.updateStreamingToolCall(data.toolCall.id, { input: data.toolCall.input });
+          } else {
+            store.addStreamingToolCall(data.toolCall);
+          }
+          store.setCurrentToolCall(data.toolCall);
+        }
+      } else if (data.type === 'tool_result' && data.toolResult) {
+        if (chatId) {
+          store.updateChatStreamingToolCall(chatId, data.toolResult.toolCallId, {
+            status: data.toolResult.isError ? 'error' : 'completed',
+            output: data.toolResult.output,
+          });
+          store.setChatToolCall(chatId, null);
+        } else {
+          store.updateStreamingToolCall(data.toolResult.toolCallId, {
+            status: data.toolResult.isError ? 'error' : 'completed',
+            output: data.toolResult.output,
+          });
+          store.setCurrentToolCall(null);
+        }
+      } else if (data.type === 'complete') {
+        if (chatId) {
+          store.setChatToolCall(chatId, null);
+        } else {
+          store.setCurrentToolCall(null);
+        }
       }
     });
 
-    const cleanupMessage = bridge.onClaudeMessage(async (message) => {
-      const { clearStreamingContent, setCurrentToolCall, addMessage, setStreaming, streamingContent, clearStreamingToolCalls } = useAgentStore.getState();
+    const cleanupMessage = bridge.onClaudeMessage(async (data: any) => {
+      const chatId = data.chatId as string | undefined;
+      const message = data.message || data; // Handle both tagged and untagged formats
+      const store = useAgentStore.getState();
+      const activeChatId = useChatSessionStore.getState().activeChatId;
 
-      if (!message.content && streamingContent) {
-        message.content = streamingContent;
+      if (chatId) {
+        // Fill in content from streaming if empty
+        const stream = store.getChatStream(chatId);
+        if (!message.content && stream.streamingContent) {
+          message.content = stream.streamingContent;
+        }
+
+        // Clear this chat's streaming state
+        store.clearChatStream(chatId);
+        store.setChatStreaming(chatId, false);
+
+        // Only add to displayed messages if this is the active chat
+        if (chatId === activeChatId) {
+          store.addMessage(message);
+        }
+
+        // Always save to persistent session store
+        const chatStore = useChatSessionStore.getState();
+        const session = chatStore.sessions[chatId];
+        if (session) {
+          const msgs = chatId === activeChatId
+            ? useAgentStore.getState().messages
+            : [...session.messages, message];
+          chatStore.saveMessages(chatId, msgs);
+        }
+      } else {
+        // Legacy untagged format
+        if (!message.content && store.streamingContent) {
+          message.content = store.streamingContent;
+        }
+        store.clearStreamingContent();
+        store.clearStreamingToolCalls();
+        store.setCurrentToolCall(null);
+        store.addMessage(message);
+        store.setStreaming(false);
+
+        if (activeChatId) {
+          useChatSessionStore.getState().saveMessages(activeChatId, useAgentStore.getState().messages);
+        }
       }
 
-      clearStreamingContent();
-      clearStreamingToolCalls();
-      setCurrentToolCall(null);
-      addMessage(message);
-      setStreaming(false);
-
-      // Create file checkpoint after each assistant response (only if files were modified)
+      // Create file checkpoint after each assistant response
       bridge.createFileCheckpoint(message.id).then((created) => {
         if (created) {
           setCheckpointMessageIds((prev) => new Set([...prev, message.id]));
@@ -163,27 +221,24 @@ export default function App() {
       });
 
       // Auto-name the chat session
-      const chatId = useChatSessionStore.getState().activeChatId;
-      if (chatId) {
-        const chat = useChatSessionStore.getState().sessions[chatId];
-        const allMessages = useAgentStore.getState().messages;
+      const targetChatId = chatId || activeChatId;
+      if (targetChatId) {
+        const chat = useChatSessionStore.getState().sessions[targetChatId];
+        const allMessages = targetChatId === activeChatId
+          ? useAgentStore.getState().messages
+          : chat?.messages || [];
 
-        // Update name if it's still "New Chat" or if this is the first message
         if (chat && (chat.name === 'New Chat' || chat.messages.length === 0)) {
           const userMessages = allMessages.filter((m: Message) => m.role === 'user');
 
-          // Update title based on first user message or after 2-3 exchanges
           if (userMessages.length > 0) {
             let titleContent = '';
-
-            // Use first user message primarily
             const firstUser = userMessages[0];
             titleContent = firstUser.content
               .replace(/<file\s+path="[^"]*">\n?[\s\S]*?\n?<\/file>/g, '')
               .replace(/^\n+/, '')
               .trim();
 
-            // If we have multiple messages and first was short, consider combining
             if (titleContent.length < 20 && userMessages.length > 1) {
               const secondUser = userMessages[1];
               const secondContent = secondUser.content
@@ -195,41 +250,44 @@ export default function App() {
               }
             }
 
-            // Extract a clean title
             const firstLine = titleContent.split(/[\n.!?]/)[0]?.trim() || titleContent;
             let name = firstLine.slice(0, 50).trim();
-
-            // Clean up common patterns
             name = name.replace(/^(please |can you |help me |i need |i want )/i, '');
             name = name.replace(/['"]/g, '');
-
-            // Capitalize first letter
             if (name.length > 0) {
               name = name.charAt(0).toUpperCase() + name.slice(1);
             }
-
-            // Final fallback
             name = name || 'Chat Session';
-
-            useChatSessionStore.getState().updateChat(chatId, { name });
+            useChatSessionStore.getState().updateChat(targetChatId, { name });
           }
         }
-
-        useChatSessionStore.getState().saveMessages(chatId, useAgentStore.getState().messages);
       }
     });
 
-    const cleanupError = bridge.onClaudeError((error) => {
-      if (!error.startsWith('[Debug]')) {
-        useAgentStore.getState().setStreaming(false);
-        // Show error to user as a system message
+    const cleanupError = bridge.onClaudeError((data: any) => {
+      const chatId = data.chatId as string | undefined;
+      const error = data.error || data; // Handle both tagged and untagged
+
+      if (typeof error === 'string' && error.startsWith('[Debug]')) return;
+
+      const store = useAgentStore.getState();
+      if (chatId) {
+        store.setChatStreaming(chatId, false);
+        store.clearChatStream(chatId);
+      } else {
+        store.setStreaming(false);
+      }
+
+      // Show error to user as system message (only for active chat)
+      const activeChatId = useChatSessionStore.getState().activeChatId;
+      if (!chatId || chatId === activeChatId) {
         const errorMsg: Message = {
           id: `err-${Date.now()}`,
           role: 'system',
-          content: `Error: ${error}`,
+          content: `Error: ${typeof error === 'string' ? error : error?.message || String(error)}`,
           timestamp: Date.now(),
         };
-        useAgentStore.getState().addMessage(errorMsg);
+        store.addMessage(errorMsg);
       }
     });
 
@@ -421,12 +479,14 @@ export default function App() {
 
   // Send message (with slash command interception)
   const handleSendMessage = useCallback(async (content: string, context?: ContextItem[]) => {
-    // If streaming, queue the message instead
-    if (isStreaming) {
-      // Use ref for immediate update without React batching
-      messageQueueRef.current.push({ content, context });
+    // Check if the ACTIVE CHAT is streaming (not just global isStreaming)
+    const activeChatId = useChatSessionStore.getState().activeChatId;
+    const chatStream = activeChatId ? useAgentStore.getState().getChatStream(activeChatId) : null;
+    const chatIsStreaming = chatStream?.isStreaming || isStreaming;
 
-      // Add the user message to the UI immediately so user sees it was queued
+    // If this chat is streaming, queue the message
+    if (chatIsStreaming) {
+      messageQueueRef.current.push({ content, context });
       const userMessage: Message = {
         id: Date.now().toString(),
         role: 'user',
@@ -435,8 +495,6 @@ export default function App() {
         context: context && context.length > 0 ? context : undefined,
       };
       addMessage(userMessage);
-
-      // Trigger queue processing check
       setMessageQueueVersion(v => v + 1);
       return;
     }
@@ -652,7 +710,7 @@ export default function App() {
     await handleSendMessage(newContent);
   }, [handleSendMessage, bridge]);
 
-  // New chat on current branch
+  // New chat on current branch — does NOT interrupt running sessions
   const handleNewChat = useCallback(() => {
     const currentId = useChatSessionStore.getState().activeChatId;
     if (currentId) {
@@ -660,11 +718,14 @@ export default function App() {
     }
     const branch = currentBranch || 'main';
     const newChat = useChatSessionStore.getState().createChat(branch, 'New Chat');
-    useAgentStore.getState().clearMessages();
+
+    // Switch display to new chat without clearing old chat's streaming state
+    useAgentStore.getState().setMessages([]);
+    useAgentStore.getState().setActiveChatId(newChat.id);
     bridge.switchChatSession(newChat.id);
   }, [bridge, currentBranch]);
 
-  // Switch to an existing chat
+  // Switch to an existing chat — does NOT interrupt running sessions
   const handleSwitchChat = useCallback((chatId: string) => {
     const currentId = useChatSessionStore.getState().activeChatId;
     if (currentId) {
@@ -673,6 +734,8 @@ export default function App() {
     const targetChat = useChatSessionStore.getState().sessions[chatId];
     if (targetChat) {
       useAgentStore.getState().setMessages(targetChat.messages);
+      // setActiveChatId syncs global streaming state from chatStreams[chatId]
+      useAgentStore.getState().setActiveChatId(chatId);
       useChatSessionStore.getState().setActiveChatId(chatId);
       bridge.switchChatSession(chatId, targetChat.claudeSessionId);
     }
@@ -682,24 +745,23 @@ export default function App() {
   const handleCloseChat = useCallback((chatId: string) => {
     const store = useChatSessionStore.getState();
     const branch = currentBranch || 'main';
-    const openChats = store.getChatsForBranch(branch); // Only returns open chats now
+    const openChats = store.getChatsForBranch(branch);
 
-    // Close the chat (mark as closed, don't delete)
     store.closeChat(chatId);
 
-    // If this was the active chat, switch to another open one
     if (store.activeChatId === chatId) {
       if (openChats.length > 1) {
         const otherChat = openChats.find((c) => c.id !== chatId);
         if (otherChat) {
           useAgentStore.getState().setMessages(otherChat.messages);
+          useAgentStore.getState().setActiveChatId(otherChat.id);
           store.setActiveChatId(otherChat.id);
           bridge.switchChatSession(otherChat.id, otherChat.claudeSessionId);
         }
       } else {
-        // No other open chats, create a new one
         const newChat = store.createChat(branch, 'New Chat');
-        useAgentStore.getState().clearMessages();
+        useAgentStore.getState().setMessages([]);
+        useAgentStore.getState().setActiveChatId(newChat.id);
         bridge.switchChatSession(newChat.id);
       }
     }
@@ -710,10 +772,14 @@ export default function App() {
     const store = useChatSessionStore.getState();
     store.openChat(chatId);
 
-    // Switch to the reopened chat
     const chat = store.sessions[chatId];
     if (chat) {
+      const currentId = store.activeChatId;
+      if (currentId) {
+        useChatSessionStore.getState().saveMessages(currentId, useAgentStore.getState().messages);
+      }
       useAgentStore.getState().setMessages(chat.messages);
+      useAgentStore.getState().setActiveChatId(chatId);
       store.setActiveChatId(chatId);
       bridge.switchChatSession(chatId, chat.claudeSessionId);
     }
@@ -724,17 +790,18 @@ export default function App() {
     const store = useChatSessionStore.getState();
     const branch = currentBranch || 'main';
 
-    // If deleting active chat, switch first
     if (store.activeChatId === chatId) {
       const openChats = store.getChatsForBranch(branch);
       const otherChat = openChats.find((c) => c.id !== chatId);
       if (otherChat) {
         useAgentStore.getState().setMessages(otherChat.messages);
+        useAgentStore.getState().setActiveChatId(otherChat.id);
         store.setActiveChatId(otherChat.id);
         bridge.switchChatSession(otherChat.id, otherChat.claudeSessionId);
       } else {
         const newChat = store.createChat(branch, 'New Chat');
-        useAgentStore.getState().clearMessages();
+        useAgentStore.getState().setMessages([]);
+        useAgentStore.getState().setActiveChatId(newChat.id);
         bridge.switchChatSession(newChat.id);
       }
     }

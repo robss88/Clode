@@ -13,7 +13,8 @@ interface FileCheckpoint {
 }
 
 export class ClaudeService {
-  private claudeManager: ClaudeCodeManager | null = null;
+  // Per-chat Claude managers — each chat gets its own CLI process
+  private managers = new Map<string, ClaudeCodeManager>();
   private checkpointManager: CheckpointManager | null = null;
   private claudeSessionIds = new Map<string, string>();
   private currentChatSessionId: string | null = null;
@@ -36,73 +37,90 @@ export class ClaudeService {
     try {
       this.checkpointManager = new CheckpointManager({ workingDir: this.workingDir });
       await this.checkpointManager.initialize();
-
-      this.claudeManager = new ClaudeCodeManager({
-        config: { workingDir: this.workingDir },
-      });
-
-      this.setupEventForwarding();
+      this.setupCheckpointForwarding();
       console.log('[ClaudeService] Initialized for:', this.workingDir);
     } catch (error) {
       console.error('[ClaudeService] Init failed:', error);
     }
   }
 
-  private setupEventForwarding() {
-    if (this.claudeManager) {
-      this.claudeManager.on('chunk', (chunk) => {
-        if (chunk.type === 'init' && chunk.sessionId && this.currentChatSessionId) {
-          this.claudeSessionIds.set(this.currentChatSessionId, chunk.sessionId);
-        }
+  /** Get or create a ClaudeCodeManager for a specific chat */
+  private getOrCreateManager(chatId: string): ClaudeCodeManager {
+    let manager = this.managers.get(chatId);
+    if (manager) return manager;
 
-        // Track file modifications from tool calls — snapshot BEFORE modification
-        if (chunk.type === 'tool_call' && chunk.toolCall) {
-          const toolName = chunk.toolCall.name?.toLowerCase();
-          const input = chunk.toolCall.input || {};
-          if ((toolName === 'edit' || toolName === 'write') && input.file_path) {
-            this.filesModifiedThisTurn = true;
-            this.snapshotFileBeforeModification(String(input.file_path));
-          }
-        }
+    manager = new ClaudeCodeManager({
+      config: { workingDir: this.workingDir },
+    });
 
-        this.postMessage({ type: 'claude:chunk', data: chunk });
-      });
+    // Set up event forwarding with chatId tagging
+    this.setupManagerEvents(chatId, manager);
 
-      this.claudeManager.on('message', (message) => {
-        this.postMessage({ type: 'claude:message', data: message });
-      });
-
-      this.claudeManager.on('tool:start', (toolCall) => {
-        this.postMessage({ type: 'claude:tool-start', data: toolCall });
-      });
-
-      // Backup file tracking via tool:complete — input is guaranteed complete here
-      this.claudeManager.on('tool:complete', (toolCall, _result) => {
-        const toolName = toolCall.name?.toLowerCase();
-        const input = toolCall.input || {};
-        if ((toolName === 'edit' || toolName === 'write') && input.file_path) {
-          this.filesModifiedThisTurn = true;
-          const filePath = this.resolveFilePath(String(input.file_path));
-          this.allTrackedFiles.add(filePath);
-          // If we missed the pre-modification snapshot (input was empty during tool_call),
-          // at least track the file. The file is already modified at this point.
-          if (!this.pendingFileSnapshots.has(filePath)) {
-            console.warn(`[Checkpoint] Missed pre-modification snapshot for ${filePath}, tracking post-modification state`);
-            try {
-              const content = fs.readFileSync(filePath, 'utf-8');
-              this.pendingFileSnapshots.set(filePath, { content });
-            } catch {
-              this.pendingFileSnapshots.set(filePath, { content: null });
-            }
-          }
-        }
-      });
-
-      this.claudeManager.on('error', (error) => {
-        this.postMessage({ type: 'claude:error', data: error.message || String(error) });
-      });
+    // Restore session ID if we have one
+    const sessionId = this.claudeSessionIds.get(chatId);
+    if (sessionId) {
+      manager.setSessionId(sessionId);
     }
 
+    this.managers.set(chatId, manager);
+    console.log(`[ClaudeService] Created manager for chat ${chatId}`);
+    return manager;
+  }
+
+  /** Set up event forwarding for a specific manager, tagging all events with chatId */
+  private setupManagerEvents(chatId: string, manager: ClaudeCodeManager) {
+    manager.on('chunk', (chunk) => {
+      if (chunk.type === 'init' && chunk.sessionId) {
+        this.claudeSessionIds.set(chatId, chunk.sessionId);
+      }
+
+      // Track file modifications from tool calls — snapshot BEFORE modification
+      if (chunk.type === 'tool_call' && chunk.toolCall) {
+        const toolName = chunk.toolCall.name?.toLowerCase();
+        const input = chunk.toolCall.input || {};
+        if ((toolName === 'edit' || toolName === 'write') && input.file_path) {
+          this.filesModifiedThisTurn = true;
+          this.snapshotFileBeforeModification(String(input.file_path));
+        }
+      }
+
+      this.postMessage({ type: 'claude:chunk', data: { chatId, ...chunk } });
+    });
+
+    manager.on('message', (message) => {
+      this.postMessage({ type: 'claude:message', data: { chatId, message } });
+    });
+
+    manager.on('tool:start', (toolCall) => {
+      this.postMessage({ type: 'claude:tool-start', data: { chatId, toolCall } });
+    });
+
+    // Backup file tracking via tool:complete — input is guaranteed complete here
+    manager.on('tool:complete', (toolCall, _result) => {
+      const toolName = toolCall.name?.toLowerCase();
+      const input = toolCall.input || {};
+      if ((toolName === 'edit' || toolName === 'write') && input.file_path) {
+        this.filesModifiedThisTurn = true;
+        const filePath = this.resolveFilePath(String(input.file_path));
+        this.allTrackedFiles.add(filePath);
+        if (!this.pendingFileSnapshots.has(filePath)) {
+          console.warn(`[Checkpoint] Missed pre-modification snapshot for ${filePath}, tracking post-modification state`);
+          try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            this.pendingFileSnapshots.set(filePath, { content });
+          } catch {
+            this.pendingFileSnapshots.set(filePath, { content: null });
+          }
+        }
+      }
+    });
+
+    manager.on('error', (error) => {
+      this.postMessage({ type: 'claude:error', data: { chatId, error: error.message || String(error) } });
+    });
+  }
+
+  private setupCheckpointForwarding() {
     if (this.checkpointManager) {
       this.checkpointManager.on('checkpoint:created', (checkpoint) => {
         this.postMessage({ type: 'checkpoint:created', data: checkpoint });
@@ -115,21 +133,17 @@ export class ClaudeService {
   }
 
   async startClaude(chatSessionId?: string, claudeSessionId?: string): Promise<boolean> {
-    if (!this.claudeManager) return false;
     try {
-      if (chatSessionId) {
-        this.currentChatSessionId = chatSessionId;
-      }
+      const chatId = chatSessionId || this.currentChatSessionId || 'default';
+      this.currentChatSessionId = chatId;
+
       if (claudeSessionId) {
-        this.claudeManager.setSessionId(claudeSessionId);
-        if (chatSessionId) {
-          this.claudeSessionIds.set(chatSessionId, claudeSessionId);
-        }
-      } else if (chatSessionId && this.claudeSessionIds.has(chatSessionId)) {
-        this.claudeManager.setSessionId(this.claudeSessionIds.get(chatSessionId)!);
+        this.claudeSessionIds.set(chatId, claudeSessionId);
       }
-      if (!this.claudeManager.running) {
-        await this.claudeManager.spawn();
+
+      const manager = this.getOrCreateManager(chatId);
+      if (!manager.running) {
+        await manager.spawn();
       }
       return true;
     } catch (error) {
@@ -139,13 +153,14 @@ export class ClaudeService {
   }
 
   async sendMessage(content: string, options?: { extraFlags?: string[]; model?: string }): Promise<boolean> {
-    if (!this.claudeManager) return false;
+    const chatId = this.currentChatSessionId || 'default';
+    const manager = this.getOrCreateManager(chatId);
     try {
-      if (!this.claudeManager.running) {
-        await this.claudeManager.spawn();
+      if (!manager.running) {
+        await manager.spawn();
       }
-      console.log('[ClaudeService] Sending message with model:', options?.model || 'default');
-      await this.claudeManager.sendMessage(content, options);
+      console.log(`[ClaudeService] Sending message to chat ${chatId} with model:`, options?.model || 'default');
+      await manager.sendMessage(content, options);
       return true;
     } catch (error) {
       console.error('[ClaudeService] Send failed:', error);
@@ -154,32 +169,28 @@ export class ClaudeService {
   }
 
   async setModel(model: string): Promise<boolean> {
-    if (!this.claudeManager) return false;
+    const chatId = this.currentChatSessionId || 'default';
+    const manager = this.managers.get(chatId);
+    if (!manager) return false;
 
-    const currentModel = this.claudeManager.getModel();
+    const currentModel = manager.getModel();
     console.log('[ClaudeService] Switching model from', currentModel, 'to', model);
+    manager.setModel(model);
 
-    // Update the model in the manager config
-    this.claudeManager.setModel(model);
-
-    // If the model actually changed, clear the session
-    // This ensures the next message starts a new session with the correct model
     if (currentModel !== model) {
       console.log('[ClaudeService] Model changed, clearing session for fresh start');
-      this.claudeManager.setSessionId(null);
-
-      // Also clear our chat session mapping
-      if (this.currentChatSessionId) {
-        this.claudeSessionIds.delete(this.currentChatSessionId);
-      }
+      manager.setSessionId(null);
+      this.claudeSessionIds.delete(chatId);
     }
 
     return true;
   }
 
   async interrupt(): Promise<void> {
-    if (this.claudeManager?.running) {
-      this.claudeManager.terminate();
+    const chatId = this.currentChatSessionId || 'default';
+    const manager = this.managers.get(chatId);
+    if (manager?.running) {
+      manager.terminate();
     }
   }
 
@@ -312,13 +323,18 @@ export class ClaudeService {
   }
 
   async switchChatSession(chatSessionId: string, claudeSessionId?: string): Promise<void> {
-    if (!this.claudeManager) return;
+    // Just switch the active chat — do NOT terminate the old one
     this.currentChatSessionId = chatSessionId;
 
-    if (this.claudeManager.running) {
-      this.claudeManager.terminate();
+    if (claudeSessionId) {
+      this.claudeSessionIds.set(chatSessionId, claudeSessionId);
     }
-    await this.startClaude(chatSessionId, claudeSessionId);
+
+    // Ensure a manager exists for this chat (lazy creation)
+    const manager = this.getOrCreateManager(chatSessionId);
+    if (!manager.running) {
+      await manager.spawn();
+    }
   }
 
   async readFile(filePath: string): Promise<string | null> {
@@ -469,9 +485,10 @@ export class ClaudeService {
   }
 
   dispose() {
-    if (this.claudeManager) {
-      this.claudeManager.terminate();
+    for (const manager of this.managers.values()) {
+      manager.terminate();
     }
+    this.managers.clear();
   }
 }
 

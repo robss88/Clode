@@ -51,29 +51,64 @@ export type StreamingBlock =
   | { type: 'text'; content: string; id: string }
   | { type: 'tool'; toolCall: ToolCall; id: string };
 
+// Per-chat streaming state
+export interface ChatStreamState {
+  isStreaming: boolean;
+  streamingContent: string;
+  streamingBlocks: StreamingBlock[];
+  currentToolCall: ToolCall | null;
+  streamingToolCalls: ToolCall[];
+}
+
+const DEFAULT_STREAM_STATE: ChatStreamState = {
+  isStreaming: false,
+  streamingContent: '',
+  streamingBlocks: [],
+  currentToolCall: null,
+  streamingToolCalls: [],
+};
+
 // ============================================================================
 // Agent Store - Chat and Claude Code state
 // ============================================================================
 
 export interface AgentState {
   messages: Message[];
+  // Global streaming state (derived from active chat for backward compat)
   isStreaming: boolean;
-  streamingContent: string; // Deprecated - kept for compatibility
+  streamingContent: string;
   currentToolCall: ToolCall | null;
-  streamingToolCalls: ToolCall[]; // Deprecated - kept for compatibility
-  streamingBlocks: StreamingBlock[]; // New: ordered content blocks
+  streamingToolCalls: ToolCall[];
+  streamingBlocks: StreamingBlock[];
+  // Per-chat streaming state
+  chatStreams: Record<string, ChatStreamState>;
+  activeChatId: string | null;
   updateCount: number;
   draftInput: string;
 
+  // Per-chat streaming actions
+  setChatStreaming: (chatId: string, isStreaming: boolean) => void;
+  appendChatStreamContent: (chatId: string, content: string) => void;
+  setChatToolCall: (chatId: string, toolCall: ToolCall | null) => void;
+  addChatStreamingToolCall: (chatId: string, toolCall: ToolCall) => void;
+  updateChatStreamingToolCall: (chatId: string, id: string, updates: Partial<ToolCall>) => void;
+  clearChatStreamingToolCalls: (chatId: string) => void;
+  appendChatStreamBlock: (chatId: string, type: 'text' | 'tool', data: string | ToolCall) => void;
+  updateChatStreamToolBlock: (chatId: string, toolId: string, updates: Partial<ToolCall>) => void;
+  clearChatStream: (chatId: string) => void;
+  getChatStream: (chatId: string | null) => ChatStreamState;
+  setActiveChatId: (chatId: string | null) => void;
+
+  // Backward-compat global streaming actions (operate on activeChatId)
   addMessage: (message: Message) => void;
   updateMessage: (id: string, updates: Partial<Message>) => void;
   setStreaming: (isStreaming: boolean) => void;
-  appendStreamingContent: (content: string) => void; // Deprecated
-  clearStreamingContent: () => void; // Deprecated
+  appendStreamingContent: (content: string) => void;
+  clearStreamingContent: () => void;
   setCurrentToolCall: (toolCall: ToolCall | null) => void;
-  addStreamingToolCall: (toolCall: ToolCall) => void; // Deprecated
-  updateStreamingToolCall: (id: string, updates: Partial<ToolCall>) => void; // Deprecated
-  clearStreamingToolCalls: () => void; // Deprecated
+  addStreamingToolCall: (toolCall: ToolCall) => void;
+  updateStreamingToolCall: (id: string, updates: Partial<ToolCall>) => void;
+  clearStreamingToolCalls: () => void;
   appendStreamingBlock: (type: 'text' | 'tool', data: string | ToolCall) => void;
   updateStreamingToolBlock: (toolId: string, updates: Partial<ToolCall>) => void;
   clearStreamingBlocks: () => void;
@@ -83,15 +118,208 @@ export interface AgentState {
   setDraftInput: (content: string) => void;
 }
 
-export const useAgentStore = create<AgentState>((set) => ({
+// Helper to get or create chat stream state
+function getChatStreamState(chatStreams: Record<string, ChatStreamState>, chatId: string | null): ChatStreamState {
+  if (!chatId) return DEFAULT_STREAM_STATE;
+  return chatStreams[chatId] || DEFAULT_STREAM_STATE;
+}
+
+// Helper to update a specific chat's stream state
+function updateChatStream(
+  chatStreams: Record<string, ChatStreamState>,
+  chatId: string,
+  updates: Partial<ChatStreamState>
+): Record<string, ChatStreamState> {
+  const current = chatStreams[chatId] || { ...DEFAULT_STREAM_STATE };
+  return { ...chatStreams, [chatId]: { ...current, ...updates } };
+}
+
+// Helper to sync global state from active chat's stream
+function syncGlobalFromChat(state: any, chatId: string | null): any {
+  const stream = getChatStreamState(state.chatStreams, chatId);
+  return {
+    isStreaming: stream.isStreaming,
+    streamingContent: stream.streamingContent,
+    streamingBlocks: stream.streamingBlocks,
+    currentToolCall: stream.currentToolCall,
+    streamingToolCalls: stream.streamingToolCalls,
+  };
+}
+
+export const useAgentStore = create<AgentState>((set, get) => ({
   messages: [],
   isStreaming: false,
   streamingContent: '',
   currentToolCall: null,
   streamingToolCalls: [],
   streamingBlocks: [],
+  chatStreams: {},
+  activeChatId: null,
   updateCount: 0,
   draftInput: '',
+
+  // --- Per-chat streaming actions ---
+
+  getChatStream: (chatId) => getChatStreamState(get().chatStreams, chatId),
+
+  setActiveChatId: (chatId) =>
+    set((state) => {
+      const stream = getChatStreamState(state.chatStreams, chatId);
+      return {
+        activeChatId: chatId,
+        // Sync global state to new active chat
+        isStreaming: stream.isStreaming,
+        streamingContent: stream.streamingContent,
+        streamingBlocks: stream.streamingBlocks,
+        currentToolCall: stream.currentToolCall,
+        streamingToolCalls: stream.streamingToolCalls,
+        updateCount: state.updateCount + 1,
+      };
+    }),
+
+  setChatStreaming: (chatId, isStreaming) =>
+    set((state) => {
+      const chatStreams = updateChatStream(state.chatStreams, chatId, { isStreaming });
+      const isActive = chatId === state.activeChatId;
+      return {
+        chatStreams,
+        ...(isActive ? { isStreaming } : {}),
+        updateCount: state.updateCount + 1,
+      };
+    }),
+
+  appendChatStreamContent: (chatId, content) =>
+    set((state) => {
+      const current = getChatStreamState(state.chatStreams, chatId);
+      const newContent = current.streamingContent + content;
+      const chatStreams = updateChatStream(state.chatStreams, chatId, { streamingContent: newContent });
+      const isActive = chatId === state.activeChatId;
+      return {
+        chatStreams,
+        ...(isActive ? { streamingContent: newContent } : {}),
+        updateCount: state.updateCount + 1,
+      };
+    }),
+
+  setChatToolCall: (chatId, toolCall) =>
+    set((state) => {
+      const chatStreams = updateChatStream(state.chatStreams, chatId, { currentToolCall: toolCall });
+      const isActive = chatId === state.activeChatId;
+      return {
+        chatStreams,
+        ...(isActive ? { currentToolCall: toolCall } : {}),
+        updateCount: state.updateCount + 1,
+      };
+    }),
+
+  addChatStreamingToolCall: (chatId, toolCall) =>
+    set((state) => {
+      const current = getChatStreamState(state.chatStreams, chatId);
+      const newToolCalls = [...current.streamingToolCalls, toolCall];
+      const chatStreams = updateChatStream(state.chatStreams, chatId, { streamingToolCalls: newToolCalls });
+      const isActive = chatId === state.activeChatId;
+      return {
+        chatStreams,
+        ...(isActive ? { streamingToolCalls: newToolCalls } : {}),
+        updateCount: state.updateCount + 1,
+      };
+    }),
+
+  updateChatStreamingToolCall: (chatId, id, updates) =>
+    set((state) => {
+      const current = getChatStreamState(state.chatStreams, chatId);
+      const newToolCalls = current.streamingToolCalls.map((t) =>
+        t.id === id ? { ...t, ...updates } : t
+      );
+      const chatStreams = updateChatStream(state.chatStreams, chatId, { streamingToolCalls: newToolCalls });
+      const isActive = chatId === state.activeChatId;
+      return {
+        chatStreams,
+        ...(isActive ? { streamingToolCalls: newToolCalls } : {}),
+        updateCount: state.updateCount + 1,
+      };
+    }),
+
+  clearChatStreamingToolCalls: (chatId) =>
+    set((state) => {
+      const chatStreams = updateChatStream(state.chatStreams, chatId, { streamingToolCalls: [] });
+      const isActive = chatId === state.activeChatId;
+      return {
+        chatStreams,
+        ...(isActive ? { streamingToolCalls: [] } : {}),
+        updateCount: state.updateCount + 1,
+      };
+    }),
+
+  appendChatStreamBlock: (chatId, type, data) =>
+    set((state) => {
+      const current = getChatStreamState(state.chatStreams, chatId);
+      const blocks = [...current.streamingBlocks];
+
+      if (type === 'text' && typeof data === 'string') {
+        const lastBlock = blocks[blocks.length - 1];
+        if (lastBlock?.type === 'text') {
+          blocks[blocks.length - 1] = { ...lastBlock, content: lastBlock.content + data };
+        } else {
+          blocks.push({
+            type: 'text',
+            content: data,
+            id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          });
+        }
+      } else if (type === 'tool' && typeof data !== 'string') {
+        blocks.push({
+          type: 'tool',
+          toolCall: data as ToolCall,
+          id: `tool-${(data as ToolCall).id}`,
+        });
+      }
+
+      const chatStreams = updateChatStream(state.chatStreams, chatId, { streamingBlocks: blocks });
+      const isActive = chatId === state.activeChatId;
+      return {
+        chatStreams,
+        ...(isActive ? { streamingBlocks: blocks } : {}),
+        updateCount: state.updateCount + 1,
+      };
+    }),
+
+  updateChatStreamToolBlock: (chatId, toolId, updates) =>
+    set((state) => {
+      const current = getChatStreamState(state.chatStreams, chatId);
+      const blocks = current.streamingBlocks.map((block) => {
+        if (block.type === 'tool' && block.toolCall.id === toolId) {
+          return { ...block, toolCall: { ...block.toolCall, ...updates } };
+        }
+        return block;
+      });
+      const chatStreams = updateChatStream(state.chatStreams, chatId, { streamingBlocks: blocks });
+      const isActive = chatId === state.activeChatId;
+      return {
+        chatStreams,
+        ...(isActive ? { streamingBlocks: blocks } : {}),
+        updateCount: state.updateCount + 1,
+      };
+    }),
+
+  clearChatStream: (chatId) =>
+    set((state) => {
+      const chatStreams = updateChatStream(state.chatStreams, chatId, { ...DEFAULT_STREAM_STATE });
+      const isActive = chatId === state.activeChatId;
+      return {
+        chatStreams,
+        ...(isActive ? {
+          isStreaming: false,
+          streamingContent: '',
+          streamingBlocks: [],
+          currentToolCall: null,
+          streamingToolCalls: [],
+        } : {}),
+        updateCount: state.updateCount + 1,
+      };
+    }),
+
+  // --- Backward-compat global actions (operate on activeChatId) ---
 
   addMessage: (message) =>
     set((state) => ({
@@ -108,48 +336,82 @@ export const useAgentStore = create<AgentState>((set) => ({
     })),
 
   setStreaming: (isStreaming) =>
-    set((state) => ({ isStreaming, updateCount: state.updateCount + 1 })),
+    set((state) => {
+      const chatId = state.activeChatId;
+      const chatStreams = chatId
+        ? updateChatStream(state.chatStreams, chatId, { isStreaming })
+        : state.chatStreams;
+      return { isStreaming, chatStreams, updateCount: state.updateCount + 1 };
+    }),
 
   appendStreamingContent: (content) =>
-    set((state) => ({
-      streamingContent: state.streamingContent + content,
-      updateCount: state.updateCount + 1,
-    })),
+    set((state) => {
+      const newContent = state.streamingContent + content;
+      const chatId = state.activeChatId;
+      const chatStreams = chatId
+        ? updateChatStream(state.chatStreams, chatId, { streamingContent: newContent })
+        : state.chatStreams;
+      return { streamingContent: newContent, chatStreams, updateCount: state.updateCount + 1 };
+    }),
 
   clearStreamingContent: () =>
-    set((state) => ({ streamingContent: '', updateCount: state.updateCount + 1 })),
+    set((state) => {
+      const chatId = state.activeChatId;
+      const chatStreams = chatId
+        ? updateChatStream(state.chatStreams, chatId, { streamingContent: '' })
+        : state.chatStreams;
+      return { streamingContent: '', chatStreams, updateCount: state.updateCount + 1 };
+    }),
 
   setCurrentToolCall: (toolCall) =>
-    set((state) => ({ currentToolCall: toolCall, updateCount: state.updateCount + 1 })),
+    set((state) => {
+      const chatId = state.activeChatId;
+      const chatStreams = chatId
+        ? updateChatStream(state.chatStreams, chatId, { currentToolCall: toolCall })
+        : state.chatStreams;
+      return { currentToolCall: toolCall, chatStreams, updateCount: state.updateCount + 1 };
+    }),
 
   addStreamingToolCall: (toolCall) =>
-    set((state) => ({
-      streamingToolCalls: [...state.streamingToolCalls, toolCall],
-      updateCount: state.updateCount + 1,
-    })),
+    set((state) => {
+      const newToolCalls = [...state.streamingToolCalls, toolCall];
+      const chatId = state.activeChatId;
+      const chatStreams = chatId
+        ? updateChatStream(state.chatStreams, chatId, { streamingToolCalls: newToolCalls })
+        : state.chatStreams;
+      return { streamingToolCalls: newToolCalls, chatStreams, updateCount: state.updateCount + 1 };
+    }),
 
   updateStreamingToolCall: (id, updates) =>
-    set((state) => ({
-      streamingToolCalls: state.streamingToolCalls.map((t) =>
+    set((state) => {
+      const newToolCalls = state.streamingToolCalls.map((t) =>
         t.id === id ? { ...t, ...updates } : t
-      ),
-      updateCount: state.updateCount + 1,
-    })),
+      );
+      const chatId = state.activeChatId;
+      const chatStreams = chatId
+        ? updateChatStream(state.chatStreams, chatId, { streamingToolCalls: newToolCalls })
+        : state.chatStreams;
+      return { streamingToolCalls: newToolCalls, chatStreams, updateCount: state.updateCount + 1 };
+    }),
 
   clearStreamingToolCalls: () =>
-    set((state) => ({ streamingToolCalls: [], updateCount: state.updateCount + 1 })),
+    set((state) => {
+      const chatId = state.activeChatId;
+      const chatStreams = chatId
+        ? updateChatStream(state.chatStreams, chatId, { streamingToolCalls: [] })
+        : state.chatStreams;
+      return { streamingToolCalls: [], chatStreams, updateCount: state.updateCount + 1 };
+    }),
 
   appendStreamingBlock: (type, data) =>
     set((state) => {
       const blocks = [...state.streamingBlocks];
 
       if (type === 'text' && typeof data === 'string') {
-        // Check if last block is text, if so append to it
         const lastBlock = blocks[blocks.length - 1];
         if (lastBlock?.type === 'text') {
-          lastBlock.content += data;
+          blocks[blocks.length - 1] = { ...lastBlock, content: lastBlock.content + data };
         } else {
-          // Create new text block
           blocks.push({
             type: 'text',
             content: data,
@@ -157,7 +419,6 @@ export const useAgentStore = create<AgentState>((set) => ({
           });
         }
       } else if (type === 'tool' && typeof data !== 'string') {
-        // Add new tool block
         blocks.push({
           type: 'tool',
           toolCall: data as ToolCall,
@@ -165,33 +426,43 @@ export const useAgentStore = create<AgentState>((set) => ({
         });
       }
 
-      return {
-        streamingBlocks: blocks,
-        updateCount: state.updateCount + 1,
-      };
+      const chatId = state.activeChatId;
+      const chatStreams = chatId
+        ? updateChatStream(state.chatStreams, chatId, { streamingBlocks: blocks })
+        : state.chatStreams;
+      return { streamingBlocks: blocks, chatStreams, updateCount: state.updateCount + 1 };
     }),
 
   updateStreamingToolBlock: (toolId, updates) =>
-    set((state) => ({
-      streamingBlocks: state.streamingBlocks.map((block) => {
+    set((state) => {
+      const blocks = state.streamingBlocks.map((block) => {
         if (block.type === 'tool' && block.toolCall.id === toolId) {
-          return {
-            ...block,
-            toolCall: { ...block.toolCall, ...updates },
-          };
+          return { ...block, toolCall: { ...block.toolCall, ...updates } };
         }
         return block;
-      }),
-      updateCount: state.updateCount + 1,
-    })),
+      });
+      const chatId = state.activeChatId;
+      const chatStreams = chatId
+        ? updateChatStream(state.chatStreams, chatId, { streamingBlocks: blocks })
+        : state.chatStreams;
+      return { streamingBlocks: blocks, chatStreams, updateCount: state.updateCount + 1 };
+    }),
 
   clearStreamingBlocks: () =>
-    set((state) => ({
-      streamingBlocks: [],
-      streamingContent: '',
-      streamingToolCalls: [],
-      updateCount: state.updateCount + 1
-    })),
+    set((state) => {
+      const chatId = state.activeChatId;
+      const chatStreams = chatId
+        ? updateChatStream(state.chatStreams, chatId, { ...DEFAULT_STREAM_STATE })
+        : state.chatStreams;
+      return {
+        streamingBlocks: [],
+        streamingContent: '',
+        streamingToolCalls: [],
+        currentToolCall: null,
+        chatStreams,
+        updateCount: state.updateCount + 1,
+      };
+    }),
 
   clearMessages: () =>
     set((state) => ({
@@ -199,7 +470,9 @@ export const useAgentStore = create<AgentState>((set) => ({
       streamingContent: '',
       streamingToolCalls: [],
       streamingBlocks: [],
-      updateCount: state.updateCount + 1
+      currentToolCall: null,
+      isStreaming: false,
+      updateCount: state.updateCount + 1,
     })),
 
   setMessages: (messages) =>
