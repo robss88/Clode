@@ -277,8 +277,8 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
       throw err;
     }
 
-    // Finalize message
-    if (currentMessage.content) {
+    // Finalize message - emit if there's content OR tool calls
+    if (currentMessage.content || (currentMessage.toolCalls && currentMessage.toolCalls.length > 0)) {
       currentMessage.isStreaming = false;
       const message = currentMessage as Message;
       this.messageHistory.push(message);
@@ -405,8 +405,8 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
         clearTimeout(timeout);
         console.log('[ClaudeCodeManager] CLI process closed with code:', code);
 
-        // Finalize message
-        if (currentMessage.content) {
+        // Finalize message - emit if there's content OR tool calls
+        if (currentMessage.content || (currentMessage.toolCalls && currentMessage.toolCalls.length > 0)) {
           currentMessage.isStreaming = false;
           const message = currentMessage as Message;
           this.messageHistory.push(message);
