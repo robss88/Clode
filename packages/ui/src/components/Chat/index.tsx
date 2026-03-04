@@ -22,6 +22,7 @@ import clsx from 'clsx';
 import type { Message, ToolCall, FileNode, ContextItem } from '@claude-agent/core';
 import { useUIStore, useAgentStore } from '../../stores';
 import { ChatInput } from './ChatInput';
+import { ContextBubbleList } from './ContextBubble';
 
 interface ChatInterfaceProps {
   messages: Message[];
@@ -299,21 +300,6 @@ export function ChatInterface({
           <CliActivityBar streamingBlocks={streamingBlocks} currentToolCall={currentToolCall} />
         )}
 
-        {/* Show thinking indicator when streaming but no content yet */}
-        {isStreaming && !streamingContent && !currentToolCall && streamingToolCalls.length === 0 && streamingBlocks.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="px-4"
-          >
-            <div className="message-content message-content-assistant">
-              <div className="flex items-center gap-2 text-foreground-muted">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Thinking...</span>
-              </div>
-            </div>
-          </motion.div>
-        )}
 
         <div ref={messagesEndRef} />
         </div>
@@ -460,6 +446,12 @@ function MessageBubble({
               )}
               onClick={!isFadedOut && canEdit ? startEditing : undefined}
             >
+              {/* Display context bubbles for user messages */}
+              {isUser && message.context && message.context.length > 0 && (
+                <div className="mb-2">
+                  <ContextBubbleList items={message.context} compact />
+                </div>
+              )}
               {(() => {
                 const { textContent } = isUser ? parseFileContext(message.content) : { textContent: message.content };
                 return <MarkdownContent content={textContent} />;
@@ -747,7 +739,7 @@ function CliActivityBar({ streamingBlocks, currentToolCall }: { streamingBlocks:
     }
 
     if (activeToolCall.status === 'completed') {
-      statusText = 'Thinking...';
+      statusText = 'Working...';
       statusDetail = '';
     }
   }
