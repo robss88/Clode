@@ -112,47 +112,47 @@ export default function App() {
         }
       } else if (data.type === 'text') {
         if (chatId) {
+          store.appendChatStreamBlock(chatId, 'text', data.content);
           store.appendChatStreamContent(chatId, data.content);
           store.setChatToolCall(chatId, null);
         } else {
+          store.appendStreamingBlock('text', data.content);
           store.appendStreamingContent(data.content);
           store.setCurrentToolCall(null);
         }
       } else if (data.type === 'tool_call' && data.toolCall) {
         if (chatId) {
           const stream = store.getChatStream(chatId);
-          const existing = stream.streamingToolCalls.find(
-            (t: any) => t.id === data.toolCall.id
+          const existingBlock = stream.streamingBlocks.find(
+            (b: any) => b.type === 'tool' && b.toolCall.id === data.toolCall.id
           );
-          if (existing) {
-            store.updateChatStreamingToolCall(chatId, data.toolCall.id, { input: data.toolCall.input });
+          if (existingBlock) {
+            store.updateChatStreamToolBlock(chatId, data.toolCall.id, { input: data.toolCall.input });
           } else {
-            store.addChatStreamingToolCall(chatId, data.toolCall);
+            store.appendChatStreamBlock(chatId, 'tool', data.toolCall);
           }
           store.setChatToolCall(chatId, data.toolCall);
         } else {
-          const existing = store.streamingToolCalls.find(
-            (t) => t.id === data.toolCall.id
+          const existingBlock = store.streamingBlocks.find(
+            (b) => b.type === 'tool' && b.toolCall.id === data.toolCall.id
           );
-          if (existing) {
-            store.updateStreamingToolCall(data.toolCall.id, { input: data.toolCall.input });
+          if (existingBlock) {
+            store.updateStreamingToolBlock(data.toolCall.id, { input: data.toolCall.input });
           } else {
-            store.addStreamingToolCall(data.toolCall);
+            store.appendStreamingBlock('tool', data.toolCall);
           }
           store.setCurrentToolCall(data.toolCall);
         }
       } else if (data.type === 'tool_result' && data.toolResult) {
+        const resultUpdates = {
+          status: (data.toolResult.isError ? 'error' : 'completed') as 'error' | 'completed',
+          output: data.toolResult.output,
+        };
         if (chatId) {
-          store.updateChatStreamingToolCall(chatId, data.toolResult.toolCallId, {
-            status: data.toolResult.isError ? 'error' : 'completed',
-            output: data.toolResult.output,
-          });
+          store.updateChatStreamToolBlock(chatId, data.toolResult.toolCallId, resultUpdates);
           store.setChatToolCall(chatId, null);
         } else {
-          store.updateStreamingToolCall(data.toolResult.toolCallId, {
-            status: data.toolResult.isError ? 'error' : 'completed',
-            output: data.toolResult.output,
-          });
+          store.updateStreamingToolBlock(data.toolResult.toolCallId, resultUpdates);
           store.setCurrentToolCall(null);
         }
       } else if (data.type === 'complete') {
