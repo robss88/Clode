@@ -85,6 +85,8 @@ export interface AgentState {
   activeChatId: string | null;
   updateCount: number;
   draftInput: string;
+  // Debug raw output
+  debugRawLines: Array<{ timestamp: number; data: any }>;
 
   // Per-chat streaming actions
   setChatStreaming: (chatId: string, isStreaming: boolean) => void;
@@ -116,6 +118,8 @@ export interface AgentState {
   setMessages: (messages: Message[]) => void;
   truncateAfterMessage: (messageId: string) => void;
   setDraftInput: (content: string) => void;
+  pushDebugRawLine: (data: any) => void;
+  clearDebugRawLines: () => void;
 }
 
 // Helper to get or create chat stream state
@@ -157,6 +161,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   activeChatId: null,
   updateCount: 0,
   draftInput: '',
+  debugRawLines: [],
 
   // --- Per-chat streaming actions ---
 
@@ -493,6 +498,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       draftInput: content,
       updateCount: state.updateCount + 1,
     })),
+
+  pushDebugRawLine: (data) =>
+    set((state) => ({
+      debugRawLines: [...state.debugRawLines.slice(-500), { timestamp: Date.now(), data }],
+    })),
+
+  clearDebugRawLines: () => set({ debugRawLines: [] }),
 }));
 
 // ============================================================================
@@ -668,6 +680,7 @@ export interface UIState {
   diffFile: string | null;
   showCommandPalette: boolean;
   showSettings: boolean;
+  showDebugPanel: boolean;
   extendedThinking: boolean;
 
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
@@ -683,6 +696,7 @@ export interface UIState {
   setDiffFile: (path: string | null) => void;
   toggleCommandPalette: () => void;
   toggleSettings: () => void;
+  toggleDebugPanel: () => void;
   setExtendedThinking: (enabled: boolean) => void;
 }
 
@@ -694,6 +708,7 @@ export const useUIStore = create<UIState>()(
       model: 'sonnet',
       showCommandPalette: false,
       showSettings: false,
+      showDebugPanel: false,
       extendedThinking: false,
       layout: {
         leftPanel: { isOpen: true, size: 260 },
@@ -708,6 +723,7 @@ export const useUIStore = create<UIState>()(
       setModel: (model) => set({ model }),
       toggleCommandPalette: () => set((state) => ({ showCommandPalette: !state.showCommandPalette })),
       toggleSettings: () => set((state) => ({ showSettings: !state.showSettings })),
+      toggleDebugPanel: () => set((state) => ({ showDebugPanel: !state.showDebugPanel })),
       setExtendedThinking: (enabled) => set({ extendedThinking: enabled }),
 
       toggleLeftPanel: () =>
