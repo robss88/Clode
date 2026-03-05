@@ -168,6 +168,7 @@ export default function App() {
     });
 
     const cleanupMessage = bridge.onClaudeMessage(async (data: any) => {
+      useAgentStore.getState().pushDebugRawLine({ _event: 'claude:message', ...data });
       const chatId = data.chatId as string | undefined;
       const message = data.message || data; // Handle both tagged and untagged formats
       const store = useAgentStore.getState();
@@ -268,6 +269,7 @@ export default function App() {
     });
 
     const cleanupError = bridge.onClaudeError((data: any) => {
+      useAgentStore.getState().pushDebugRawLine({ _event: 'claude:error', ...data });
       const chatId = data.chatId as string | undefined;
       const error = data.error || data; // Handle both tagged and untagged
 
@@ -582,6 +584,7 @@ export default function App() {
 
     // Normal message
     setStreaming(true);
+    const currentModel = useUIStore.getState().model;
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
@@ -589,9 +592,19 @@ export default function App() {
       timestamp: Date.now(),
       context: context && context.length > 0 ? context : undefined,
     };
+
+    // Log outgoing message to debug panel
+    useAgentStore.getState().pushDebugRawLine({
+      _event: 'user:send',
+      content: content.slice(0, 500),
+      contextItems: context?.length || 0,
+      model: currentModel,
+      mode: useUIStore.getState().mode,
+      flags: modeFlags,
+    });
+
     addMessage(userMessage);
     updateChatTitle(); // Update title after user message
-    const currentModel = useUIStore.getState().model;
     bridge.sendMessage(content, {
       model: currentModel || undefined,
       extraFlags: modeFlags.length > 0 ? modeFlags : undefined,

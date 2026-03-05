@@ -369,6 +369,11 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
       };
       const currentToolCalls = new Map<string, ToolCall>();
 
+      this.emit('chunk', {
+        type: 'cli_spawn',
+        content: JSON.stringify({ pid: childProcess.pid, args, cwd: this.config.workingDir }),
+      });
+
       childProcess.stdout?.on('data', (data: Buffer) => {
         const text = data.toString();
         console.log('[ClaudeCodeManager] stdout chunk:', text.slice(0, 100));
@@ -382,6 +387,7 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
           try {
             const event = JSON.parse(line);
             console.log('[ClaudeCodeManager] Parsed event:', event.type);
+            this.emit('chunk', { type: 'raw_cli_event', content: JSON.stringify(event) });
             this.processCliEvent(event, currentMessage, currentToolCalls);
           } catch {
             // Non-JSON output, emit as text
@@ -399,11 +405,13 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
       childProcess.stderr?.on('data', (data: Buffer) => {
         const errorText = data.toString();
         console.log('[ClaudeCodeManager] stderr:', errorText);
+        this.emit('chunk', { type: 'cli_stderr', content: errorText });
       });
 
       childProcess.on('close', (code: number) => {
         clearTimeout(timeout);
         console.log('[ClaudeCodeManager] CLI process closed with code:', code);
+        this.emit('chunk', { type: 'cli_close', content: JSON.stringify({ exitCode: code }) });
 
         // Finalize message - emit if there's content OR tool calls
         if (currentMessage.content || (currentMessage.toolCalls && currentMessage.toolCalls.length > 0)) {

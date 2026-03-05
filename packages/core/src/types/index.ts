@@ -279,7 +279,7 @@ export interface ClaudeResultEvent {
 export type ClaudeEvent = ClaudeSystemEvent | ClaudeAssistantEvent | ClaudeUserEvent | ClaudeResultEvent;
 
 export interface ClaudeStreamChunk {
-  type: 'text' | 'tool_call' | 'tool_result' | 'error' | 'init' | 'complete';
+  type: 'text' | 'tool_call' | 'tool_result' | 'error' | 'init' | 'complete' | 'raw_cli_event' | 'cli_stderr' | 'cli_spawn' | 'cli_close';
   content: string;
   toolCall?: ToolCall;
   toolResult?: ToolResult;
