@@ -22,7 +22,6 @@ import clsx from 'clsx';
 import type { Message, ToolCall, FileNode, ContextItem } from '@claude-agent/core';
 import { useUIStore, useAgentStore } from '../../stores';
 import { ChatInput } from './ChatInput';
-import { ContextBubbleList } from './ContextBubble';
 
 interface ChatInterfaceProps {
   messages: Message[];
@@ -409,7 +408,22 @@ function MessageBubble({
     }
   };
 
-  const editInitialValue = parseFileContext(message.content).textContent;
+  const editParsed = isUser ? parseFileContext(message.content || '') : null;
+  const editContextItems = isUser ? (message.context || []) : [];
+  const editMentions = editParsed
+    ? (editContextItems.length > 0
+        ? editContextItems
+        : editParsed.files.map((f, i) => ({ id: `f-${i}`, type: 'file' as const, name: f.name, path: f.path })))
+    : [];
+  const editInitialValue = editParsed?.textContent || '';
+
+  // Strip @mentions from text — they'll be rendered as inline chips by ChatInput
+  let cleanEditText = editInitialValue;
+  for (const m of editMentions) {
+    const escaped = m.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    cleanEditText = cleanEditText.replace(new RegExp(`@${escaped}\\s?`), '');
+  }
+  cleanEditText = cleanEditText.trim();
 
   return (
     <>
@@ -421,57 +435,51 @@ function MessageBubble({
         className={clsx('group relative', isFadedOut && 'cursor-pointer')}
         onClick={isFadedOut ? handleFadedClick : undefined}
       >
-        {/* Inline editing mode — uses shared ChatInput component */}
-        {!isFadedOut && isInlineEditing ? (
-          <ChatInput
-            initialValue={editInitialValue}
-            placeholder="Edit message..."
-            fileTree={fileTree}
-            onSubmit={handleEditSubmit}
-            onCancel={() => { setIsInlineEditing(false); setShowConfirmDialog(false); }}
-            onReadFile={onReadFile}
-            onModelChange={onModelChange}
-            dropdownDirection="down"
-            autoFocus
-          />
-        ) : (
+        {isUser ? (
           <>
-            {/* Normal message display */}
-            <div
-              className={clsx(
-                'message-content',
-                isUser
-                  ? 'message-content-user font-medium text-foreground bg-background-tertiary border border-border-secondary rounded-lg px-3 py-2 cursor-pointer hover:border-foreground-muted transition-colors'
-                  : 'message-content-assistant'
-              )}
-              onClick={!isFadedOut && canEdit ? startEditing : undefined}
-            >
-              {/* Display context bubbles for user messages */}
-              {isUser && message.context && message.context.length > 0 && (
-                <div className="mb-2">
-                  <ContextBubbleList items={message.context} compact />
-                </div>
-              )}
-              {(() => {
-                const { textContent } = isUser ? parseFileContext(message.content) : { textContent: message.content };
-                return <MarkdownContent content={textContent} />;
-              })()}
-              {/* Restore checkpoint — only on non-faded user messages */}
-              {!isFadedOut && isUser && hasCheckpoint && onRestore && (
-                <div className="flex justify-end mt-1.5 -mb-0.5">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onRestore(); }}
-                    className="flex items-center gap-1 px-1.5 py-0.5 text-[11px] text-foreground-muted hover:text-foreground rounded transition-colors"
-                    title="Restore code to this checkpoint"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    Restore checkpoint
-                  </button>
-                </div>
-              )}
-            </div>
+            {/* User message: ChatInput for both display (readOnly) and edit */}
+            {!isFadedOut && isInlineEditing ? (
+              <ChatInput
+                initialValue={cleanEditText}
+                initialContext={editMentions}
+                placeholder="Edit message..."
+                fileTree={fileTree}
+                onSubmit={handleEditSubmit}
+                onCancel={() => { setIsInlineEditing(false); setShowConfirmDialog(false); }}
+                onReadFile={onReadFile}
+                onModelChange={onModelChange}
+                dropdownDirection="down"
+                autoFocus
+              />
+            ) : (
+              <ChatInput
+                readOnly
+                initialValue={cleanEditText}
+                initialContext={editMentions}
+                onClick={!isFadedOut && canEdit ? startEditing : undefined}
+                onReadFile={onReadFile}
+              />
+            )}
+            {/* Restore checkpoint */}
+            {!isFadedOut && hasCheckpoint && onRestore && (
+              <div className="flex justify-end mt-1.5 -mb-0.5">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onRestore(); }}
+                  className="flex items-center gap-1 px-1.5 py-0.5 text-[11px] text-foreground-muted hover:text-foreground rounded transition-colors"
+                  title="Restore code to this checkpoint"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Restore checkpoint
+                </button>
+              </div>
+            )}
           </>
+        ) : (
+          /* Assistant message */
+          <div className="message-content message-content-assistant">
+            <MarkdownContent content={message.content} />
+          </div>
         )}
 
         {/* Tool calls (grouped) */}

@@ -229,14 +229,17 @@ async function fileToImageData(file: File | Blob): Promise<{
 
 export interface ChatInputProps {
   initialValue?: string;
+  initialContext?: ContextItem[];
   placeholder?: string;
   fileTree?: FileNode | null;
   disabled?: boolean;
   isStreaming?: boolean;
+  readOnly?: boolean;
   minHeight?: number;
-  onSubmit: (content: string, context?: ContextItem[]) => void;
+  onSubmit?: (content: string, context?: ContextItem[]) => void;
   onInterrupt?: () => void;
   onCancel?: () => void;
+  onClick?: () => void;
   onReadFile?: (path: string) => Promise<string | null>;
   onModelChange?: (model: string) => void;
   dropdownDirection?: 'up' | 'down';
@@ -245,14 +248,17 @@ export interface ChatInputProps {
 
 export function ChatInput({
   initialValue = '',
+  initialContext,
   placeholder = 'Message, @ for context, / for commands',
   fileTree,
   disabled = false,
   isStreaming = false,
+  readOnly = false,
   minHeight = 40,
   onSubmit,
   onInterrupt,
   onCancel,
+  onClick,
   onReadFile,
   onModelChange,
   dropdownDirection = 'up',
@@ -308,19 +314,46 @@ export function ChatInput({
     return all.filter(c => c.name.startsWith(q));
   }, [slashQuery]);
 
+  // Initialize mention chips from context (e.g. when editing a message with @mentions)
+  useEffect(() => {
+    if (!initialContext || initialContext.length === 0 || !editorRef.current) return;
+
+    const el = editorRef.current;
+    const text = el.textContent || '';
+
+    // Rebuild contentEditable with chips followed by text
+    el.innerHTML = '';
+
+    for (const item of initialContext) {
+      if (item.type === 'file' && 'path' in item && item.path) {
+        const chip = createMentionChip(item.name, item.path, onReadFile);
+        el.appendChild(chip);
+        el.appendChild(document.createTextNode('\u00A0'));
+      }
+    }
+
+    if (text) {
+      el.appendChild(document.createTextNode(text));
+    }
+
+    setHasContent(true);
+    updateHeight();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-focus
   useEffect(() => {
     if (autoFocus && editorRef.current) {
       setTimeout(() => {
         if (editorRef.current) {
           editorRef.current.focus();
-          if (initialValue) {
+          if (initialValue || (initialContext && initialContext.length > 0)) {
             placeCursorAtEnd(editorRef.current);
           }
         }
       }, 50);
     }
-  }, [autoFocus, initialValue]);
+  }, [autoFocus, initialValue, initialContext]);
 
   // Auto-resize
   const updateHeight = useCallback(() => {
@@ -524,7 +557,7 @@ export function ChatInput({
       });
     }
 
-    onSubmit(content, resolvedContext.length > 0 ? resolvedContext : undefined);
+    onSubmit?.(content, resolvedContext.length > 0 ? resolvedContext : undefined);
 
     // Clear editor
     el.innerHTML = '';
@@ -787,22 +820,29 @@ export function ChatInput({
       </AnimatePresence>
 
       {/* Unified input container */}
-      <div className="bg-background-tertiary border border-border-secondary rounded-lg focus-within:border-foreground-muted transition-colors">
+      <div
+        className={clsx(
+          'bg-background-tertiary border border-border-secondary rounded-lg transition-colors',
+          readOnly ? 'cursor-pointer hover:border-foreground-muted' : 'focus-within:border-foreground-muted',
+        )}
+        onClick={readOnly && onClick ? onClick : undefined}
+      >
         {/* ContentEditable input with inline mention chips */}
         <div className="relative">
           <div
             ref={editorRef}
-            contentEditable={!disabled}
+            contentEditable={!disabled && !readOnly}
             suppressContentEditableWarning
-            onInput={handleInput}
-            onKeyDown={handleKeyDown}
-            onCopy={handleCopy}
-            onCut={handleCopy}
-            onPaste={handlePaste}
+            onInput={readOnly ? undefined : handleInput}
+            onKeyDown={readOnly ? undefined : handleKeyDown}
+            onCopy={readOnly ? undefined : handleCopy}
+            onCut={readOnly ? undefined : handleCopy}
+            onPaste={readOnly ? undefined : handlePaste}
             className={clsx(
               'w-full px-3 py-2 bg-transparent text-sm text-foreground focus:outline-none overflow-y-auto',
               'whitespace-pre-wrap break-words',
               disabled && 'opacity-50 cursor-not-allowed',
+              readOnly && 'font-medium cursor-pointer',
             )}
             style={{ minHeight: `${minHeight}px`, maxHeight: '240px' }}
             data-placeholder={placeholder}
@@ -810,7 +850,7 @@ export function ChatInput({
             {initialValue || ''}
           </div>
           {/* Placeholder text */}
-          {!hasContent && !disabled && (
+          {!hasContent && !disabled && !readOnly && (
             <div className="absolute top-0 left-0 px-3 py-2 text-sm text-foreground-muted pointer-events-none select-none">
               {placeholder}
             </div>
@@ -818,7 +858,7 @@ export function ChatInput({
         </div>
 
         {/* Image attachments preview */}
-        {attachedImages.length > 0 && (
+        {!readOnly && attachedImages.length > 0 && (
           <div className="flex flex-wrap gap-2 px-3 pt-2 border-t border-border">
             {attachedImages.map((img) => (
               <div key={img.id} className="relative group">
@@ -843,7 +883,7 @@ export function ChatInput({
         )}
 
         {/* Bottom bar: mode/model selectors + action buttons */}
-        <div className="flex items-center px-1.5 pb-1.5">
+        {!readOnly && <div className="flex items-center px-1.5 pb-1.5">
           <ModeSelector mode={mode} onModeChange={setMode} dropdownDirection={dropdownDirection} />
           <ModelSelector
             model={model}
@@ -911,7 +951,7 @@ export function ChatInput({
               <Send className="w-3.5 h-3.5" />
             </button>
           )}
-        </div>
+        </div>}
       </div>
     </div>
   );
