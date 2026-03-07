@@ -12,7 +12,6 @@ import {
   Check,
   RotateCcw,
   Upload,
-  Play,
   ChevronRight,
   Wrench,
 } from 'lucide-react';
@@ -36,7 +35,6 @@ interface ChatInterfaceProps {
   onRestoreToMessage?: (messageId: string) => void;
   onEditMessageAndContinue?: (messageId: string, newContent: string) => void;
   onReadFile?: (path: string) => Promise<string | null>;
-  onImplementPlan?: (planContent: string) => void;
   onModelChange?: (model: string) => void;
 }
 
@@ -51,7 +49,6 @@ export function ChatInterface({
   onRestoreToMessage,
   onEditMessageAndContinue,
   onReadFile,
-  onImplementPlan,
   onModelChange,
   restoredAtMessageId,
   checkpointMessageIds,
@@ -61,8 +58,6 @@ export function ChatInterface({
   const dragCountRef = useRef(0);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  // Mode selector (still needed for plan mode button check)
-  const mode = useUIStore((state) => state.mode);
   const streamingToolCalls = useAgentStore((state) => state.streamingToolCalls);
   const streamingBlocks = useAgentStore((state) => state.streamingBlocks);
 
@@ -220,25 +215,6 @@ export function ChatInterface({
                         fileTree={fileTree}
                         onReadFile={onReadFile}
                       />
-                      {mode === 'plan' &&
-                        !isStreaming &&
-                        message.role === 'assistant' &&
-                        index === messages.length - 1 &&
-                        onImplementPlan && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 5 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="flex justify-center py-2"
-                          >
-                            <button
-                              onClick={() => onImplementPlan(message.content)}
-                              className="flex items-center gap-2 px-4 py-2 bg-foreground text-background hover:bg-foreground-secondary text-sm font-medium rounded-lg transition-colors"
-                            >
-                              <Play className="w-4 h-4" />
-                              Implement Plan
-                            </button>
-                          </motion.div>
-                        )}
                     </div>
                   );
                 })}

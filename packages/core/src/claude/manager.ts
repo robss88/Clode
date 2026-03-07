@@ -180,11 +180,14 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
         // Handle different event types from SDK
         if (event.type === 'system' && event.subtype === 'init') {
           this.sessionId = event.session_id;
-          console.log('[ClaudeCodeManager] Session ID:', this.sessionId);
+          console.log('[ClaudeCodeManager] Session ID:', this.sessionId, 'model:', event.model, 'permissionMode:', event.permissionMode);
           this.emit('chunk', {
             type: 'init',
             content: '',
             sessionId: event.session_id,
+            model: event.model,
+            permissionMode: event.permissionMode,
+            tools: event.tools,
           });
         } else if (event.type === 'assistant') {
           // Process assistant message content
@@ -387,7 +390,6 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
           try {
             const event = JSON.parse(line);
             console.log('[ClaudeCodeManager] Parsed event:', event.type);
-            this.emit('chunk', { type: 'raw_cli_event', content: JSON.stringify(event) });
             this.processCliEvent(event, currentMessage, currentToolCalls);
           } catch {
             // Non-JSON output, emit as text
@@ -485,11 +487,14 @@ export class ClaudeCodeManager extends EventEmitter<ClaudeManagerEvents> {
   ): void {
     if (event.type === 'system' && event.subtype === 'init') {
       this.sessionId = event.session_id;
-      console.log('[ClaudeCodeManager] Session ID from CLI:', this.sessionId);
+      console.log('[ClaudeCodeManager] Session ID from CLI:', this.sessionId, 'model:', event.model, 'permissionMode:', event.permissionMode);
       this.emit('chunk', {
         type: 'init',
         content: '',
         sessionId: event.session_id,
+        model: event.model,
+        permissionMode: event.permissionMode,
+        tools: event.tools,
       });
     } else if (event.type === 'assistant') {
       const content = event.message?.content || [];

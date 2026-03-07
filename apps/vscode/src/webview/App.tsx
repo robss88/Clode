@@ -99,6 +99,22 @@ export default function App() {
     return cleanup;
   }, [bridge]);
 
+  // Log mode/model changes to debug panel
+  useEffect(() => {
+    let prevMode = useUIStore.getState().mode;
+    let prevModel = useUIStore.getState().model;
+    return useUIStore.subscribe((state) => {
+      if (state.mode !== prevMode) {
+        prevMode = state.mode;
+        useAgentStore.getState().pushDebugRawLine({ _event: 'ui:mode-change', mode: state.mode });
+      }
+      if (state.model !== prevModel) {
+        prevModel = state.model;
+        useAgentStore.getState().pushDebugRawLine({ _event: 'ui:model-change', model: state.model });
+      }
+    });
+  }, []);
+
   // Set up event listeners — events are now tagged with chatId from ClaudeService
   useEffect(() => {
     const cleanupChunk = bridge.onClaudeChunk((data: any) => {
@@ -108,21 +124,22 @@ export default function App() {
       const chatId = data.chatId as string | undefined;
       const store = useAgentStore.getState();
 
-      if (data.type === 'init' && data.sessionId) {
-        const targetChatId = chatId || useChatSessionStore.getState().activeChatId;
-        if (targetChatId) {
-          useChatSessionStore.getState().updateChat(targetChatId, { claudeSessionId: data.sessionId });
+      if (data.type === 'init') {
+        if (data.sessionId) {
+          const targetChatId = chatId || useChatSessionStore.getState().activeChatId;
+          if (targetChatId) {
+            useChatSessionStore.getState().updateChat(targetChatId, { claudeSessionId: data.sessionId });
+          }
+        }
+        // Sync UI state from CLI init event — CLI is the source of truth
+        if (data.model) {
+          console.log('[Webview] CLI model:', data.model);
+        }
+        if (data.permissionMode) {
+          console.log('[Webview] CLI permission mode:', data.permissionMode);
         }
       } else if (data.type === 'text') {
-        if (chatId) {
-          store.appendChatStreamBlock(chatId, 'text', data.content);
-          store.appendChatStreamContent(chatId, data.content);
-          store.setChatToolCall(chatId, null);
-        } else {
-          store.appendStreamingBlock('text', data.content);
-          store.appendStreamingContent(data.content);
-          store.setCurrentToolCall(null);
-        }
+        store.handleTextChunk(chatId, data.content);
       } else if (data.type === 'tool_call' && data.toolCall) {
         if (chatId) {
           const stream = store.getChatStream(chatId);
@@ -632,13 +649,6 @@ export default function App() {
     }
   }, [isStreaming, messageQueueVersion, handleSendMessage]);
 
-  // Implement plan — leverages session resumption so Claude has full planning context
-  const handleImplementPlan = useCallback(async (planContent: string) => {
-    useUIStore.getState().setMode('agent');
-    addSystemMessage('Switching to Agent mode to implement plan...');
-    await handleSendMessage('Now implement the plan you just created. Follow it step by step.');
-  }, [handleSendMessage, addSystemMessage]);
-
   // Interrupt
   const handleInterrupt = useCallback(async () => {
     await bridge.interruptClaude();
@@ -860,17 +870,9 @@ export default function App() {
           onEditMessageAndContinue={handleEditMessageAndContinue}
           restoredAtMessageId={restoredAtMessageId}
           onReadFile={(path) => bridge.readFile(path)}
-          onImplementPlan={handleImplementPlan}
           onModelChange={(model) => {
-            console.log('[App.tsx] ModelSelector onModelChange called with:', model);
-            console.log('[App.tsx] Updating UIStore model to:', model);
             useUIStore.getState().setModel(model);
-            console.log('[App.tsx] Calling bridge.setModel with:', model);
-            bridge.setModel(model).then((result) => {
-              console.log('[App.tsx] bridge.setModel result:', result);
-            }).catch((error) => {
-              console.error('[App.tsx] bridge.setModel error:', error);
-            });
+            bridge.setModel(model);
           }}
         />
       </div>

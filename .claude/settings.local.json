@@ -36,7 +36,8 @@
       "Bash(python3 -c \" import sys,json d=json.load\\(sys.stdin\\) cmds=d.get\\(''contributes'',{}\\).get\\(''commands'',[]\\) for c in cmds: if ''open'' in c.get\\(''title'',''''\\).lower\\(\\) or ''kilo'' == c.get\\(''title'',''''\\).lower\\(\\) or c.get\\(''title'',''''\\) == ''Kilo Code'': print\\(json.dumps\\(c, indent=2\\)\\) \" echo \"=== Activation ===\" cat \"$ext/package.json\")",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''activationEvents'',[]\\), indent=2\\)\\)\" echo \"=== Views ===\" cat \"$ext/package.json\")",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''contributes'',{}\\).get\\(''viewsContainers'',{}\\), indent=2\\)\\)\" fi done)",
-      "Bash(python3 -c \":*)"
+      "Bash(python3 -c \":*)",
+      "WebSearch"
     ]
   }
 }

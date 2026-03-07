@@ -100,6 +100,8 @@ export interface AgentState {
   clearChatStream: (chatId: string) => void;
   getChatStream: (chatId: string | null) => ChatStreamState;
   setActiveChatId: (chatId: string | null) => void;
+  // Batched text chunk handler — single state update instead of 3-4 separate ones
+  handleTextChunk: (chatId: string | undefined, content: string) => void;
 
   // Backward-compat global streaming actions (operate on activeChatId)
   addMessage: (message: Message) => void;
@@ -505,6 +507,73 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     })),
 
   clearDebugRawLines: () => set({ debugRawLines: [] }),
+
+  // Batched text chunk: combines streamBlock append + streamContent append + toolCall clear
+  // into a single set() call (was 3-4 separate re-renders per chunk)
+  handleTextChunk: (chatId, content) =>
+    set((state) => {
+      if (chatId) {
+        const current = getChatStreamState(state.chatStreams, chatId);
+        // Update blocks
+        const blocks = [...current.streamingBlocks];
+        const lastBlock = blocks[blocks.length - 1];
+        if (lastBlock?.type === 'text') {
+          blocks[blocks.length - 1] = { ...lastBlock, content: lastBlock.content + content };
+        } else {
+          blocks.push({
+            type: 'text',
+            content,
+            id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          });
+        }
+        // Update content + blocks + clear tool in one shot
+        const newContent = current.streamingContent + content;
+        const chatStreams = updateChatStream(state.chatStreams, chatId, {
+          streamingBlocks: blocks,
+          streamingContent: newContent,
+          currentToolCall: null,
+        });
+        const isActive = chatId === state.activeChatId;
+        return {
+          chatStreams,
+          ...(isActive ? {
+            streamingBlocks: blocks,
+            streamingContent: newContent,
+            currentToolCall: null,
+          } : {}),
+          updateCount: state.updateCount + 1,
+        };
+      } else {
+        // Legacy path (no chatId)
+        const blocks = [...state.streamingBlocks];
+        const lastBlock = blocks[blocks.length - 1];
+        if (lastBlock?.type === 'text') {
+          blocks[blocks.length - 1] = { ...lastBlock, content: lastBlock.content + content };
+        } else {
+          blocks.push({
+            type: 'text',
+            content,
+            id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          });
+        }
+        const newContent = state.streamingContent + content;
+        const chatId2 = state.activeChatId;
+        const chatStreams = chatId2
+          ? updateChatStream(state.chatStreams, chatId2, {
+              streamingBlocks: blocks,
+              streamingContent: newContent,
+              currentToolCall: null,
+            })
+          : state.chatStreams;
+        return {
+          streamingBlocks: blocks,
+          streamingContent: newContent,
+          currentToolCall: null,
+          chatStreams,
+          updateCount: state.updateCount + 1,
+        };
+      }
+    }),
 }));
 
 // ============================================================================

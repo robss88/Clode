@@ -74,16 +74,6 @@ export class ClaudeService {
         this.claudeSessionIds.set(chatId, chunk.sessionId);
       }
 
-      // Track file modifications from tool calls — snapshot BEFORE modification
-      if (chunk.type === 'tool_call' && chunk.toolCall) {
-        const toolName = chunk.toolCall.name?.toLowerCase();
-        const input = chunk.toolCall.input || {};
-        if ((toolName === 'edit' || toolName === 'write') && input.file_path) {
-          this.filesModifiedThisTurn = true;
-          this.snapshotFileBeforeModification(String(input.file_path));
-        }
-      }
-
       this.postMessage({ type: 'claude:chunk', data: { chatId, ...chunk } });
     });
 
@@ -91,11 +81,17 @@ export class ClaudeService {
       this.postMessage({ type: 'claude:message', data: { chatId, message } });
     });
 
+    // Track file modifications — snapshot BEFORE modification starts
     manager.on('tool:start', (toolCall) => {
-      this.postMessage({ type: 'claude:tool-start', data: { chatId, toolCall } });
+      const toolName = toolCall.name?.toLowerCase();
+      const input = toolCall.input || {};
+      if ((toolName === 'edit' || toolName === 'write') && input.file_path) {
+        this.filesModifiedThisTurn = true;
+        this.snapshotFileBeforeModification(String(input.file_path));
+      }
     });
 
-    // Backup file tracking via tool:complete — input is guaranteed complete here
+    // Track file modifications — ensure post-modification state is captured
     manager.on('tool:complete', (toolCall, _result) => {
       const toolName = toolCall.name?.toLowerCase();
       const input = toolCall.input || {};
