@@ -340,8 +340,6 @@ function MessageBubble({
   const isAssistant = message.role === 'assistant';
   const isSystem = message.role === 'system';
   const [isInlineEditing, setIsInlineEditing] = useState(false);
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [pendingEditContent, setPendingEditContent] = useState('');
 
   // System messages render as centered, muted text
   if (isSystem) {
@@ -366,18 +364,10 @@ function MessageBubble({
     setIsInlineEditing(true);
   };
 
-  const [pendingEditContext, setPendingEditContext] = useState<ContextItem[] | undefined>();
-
   const handleEditSubmit = (content: string, context?: ContextItem[]) => {
     if (!content.trim()) return;
-    if (!isLastMessage) {
-      setPendingEditContent(content);
-      setPendingEditContext(context);
-      setShowConfirmDialog(true);
-    } else {
-      onEditAndContinue?.(content, context);
-      setIsInlineEditing(false);
-    }
+    onEditAndContinue?.(content, context);
+    setIsInlineEditing(false);
   };
 
   // When faded, clicking the entire section restores to that point
@@ -396,14 +386,6 @@ function MessageBubble({
     : [];
   const editInitialValue = editParsed?.textContent || '';
 
-  // Strip @mentions from text — they'll be rendered as inline chips by ChatInput
-  let cleanEditText = editInitialValue;
-  for (const m of editMentions) {
-    const escaped = m.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    cleanEditText = cleanEditText.replace(new RegExp(`@${escaped}\\s?`), '');
-  }
-  cleanEditText = cleanEditText.trim();
-
   return (
     <>
       <motion.div
@@ -419,12 +401,13 @@ function MessageBubble({
             {/* User message: ChatInput for both display (readOnly) and edit */}
             {!isFadedOut && isInlineEditing ? (
               <ChatInput
-                initialValue={cleanEditText}
+                key="edit"
+                initialValue={editInitialValue}
                 initialContext={editMentions}
                 placeholder="Edit message..."
                 fileTree={fileTree}
                 onSubmit={handleEditSubmit}
-                onCancel={() => { setIsInlineEditing(false); setShowConfirmDialog(false); }}
+                onCancel={() => setIsInlineEditing(false)}
                 onReadFile={onReadFile}
                 onModelChange={onModelChange}
                 dropdownDirection="down"
@@ -432,6 +415,7 @@ function MessageBubble({
               />
             ) : (
               <ChatInput
+                key="display"
                 readOnly
                 initialValue={editInitialValue}
                 initialContext={editMentions}
@@ -467,40 +451,6 @@ function MessageBubble({
         )}
       </motion.div>
 
-      {/* Confirmation dialog for editing a previous message */}
-      {showConfirmDialog && (
-        <motion.div
-          initial={{ opacity: 0, y: -5 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-2 bg-background-tertiary border border-border-secondary rounded-lg p-3"
-        >
-          <p className="text-xs text-foreground-secondary mb-3">
-            This will clear all messages after this one.
-          </p>
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => { setShowConfirmDialog(false); setIsInlineEditing(false); }}
-              className="px-2 py-1 text-xs text-foreground-muted hover:text-foreground transition-colors"
-            >
-              Cancel
-            </button>
-            {onEditAndContinue && (
-              <button
-                type="button"
-                onClick={() => {
-                  onEditAndContinue(pendingEditContent, pendingEditContext);
-                  setShowConfirmDialog(false);
-                  setIsInlineEditing(false);
-                }}
-                className="px-3 py-1 text-xs bg-foreground text-background rounded-md hover:bg-foreground-secondary transition-colors"
-              >
-                Continue
-              </button>
-            )}
-          </div>
-        </motion.div>
-      )}
     </>
   );
 }
