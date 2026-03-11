@@ -34,7 +34,7 @@ export const MODES: Record<AgentMode, ModeDefinition> = {
     description: 'Full autonomous agent with all tools',
     placeholder: 'Message Claude... (@ to mention files, / for commands)',
     extraFlags: [
-      '--permission-mode', 'default',
+      '--permission-mode', 'acceptEdits',
     ],
   },
   yolo: {

@@ -33,7 +33,7 @@ interface ChatInterfaceProps {
   onSendMessage: (content: string, context?: ContextItem[]) => void;
   onInterrupt: () => void;
   onRestoreToMessage?: (messageId: string) => void;
-  onEditMessageAndContinue?: (messageId: string, newContent: string) => void;
+  onEditMessageAndContinue?: (messageId: string, newContent: string, context?: ContextItem[]) => void;
   onReadFile?: (path: string) => Promise<string | null>;
   onModelChange?: (model: string) => void;
 }
@@ -210,7 +210,7 @@ export function ChatInterface({
                         isFadedOut={isFadedOut}
                         hasCheckpoint={hasCheckpoint}
                         onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
-                        onEditAndContinue={!isFadedOut && message.role === 'user' && onEditMessageAndContinue ? (newContent: string) => onEditMessageAndContinue(message.id, newContent) : undefined}
+                        onEditAndContinue={!isFadedOut && message.role === 'user' && onEditMessageAndContinue ? (newContent: string, context?: ContextItem[]) => onEditMessageAndContinue(message.id, newContent, context) : undefined}
                         onModelChange={onModelChange}
                         fileTree={fileTree}
                         onReadFile={onReadFile}
@@ -331,7 +331,7 @@ function MessageBubble({
   isFadedOut?: boolean;
   hasCheckpoint?: boolean;
   onRestore?: () => void;
-  onEditAndContinue?: (newContent: string) => void;
+  onEditAndContinue?: (newContent: string, context?: ContextItem[]) => void;
   onModelChange?: (model: string) => void;
   fileTree?: FileNode | null;
   onReadFile?: (path: string) => Promise<string | null>;
@@ -366,13 +366,16 @@ function MessageBubble({
     setIsInlineEditing(true);
   };
 
-  const handleEditSubmit = (content: string) => {
+  const [pendingEditContext, setPendingEditContext] = useState<ContextItem[] | undefined>();
+
+  const handleEditSubmit = (content: string, context?: ContextItem[]) => {
     if (!content.trim()) return;
     if (!isLastMessage) {
       setPendingEditContent(content);
+      setPendingEditContext(context);
       setShowConfirmDialog(true);
     } else {
-      onEditAndContinue?.(content);
+      onEditAndContinue?.(content, context);
       setIsInlineEditing(false);
     }
   };
@@ -486,7 +489,7 @@ function MessageBubble({
               <button
                 type="button"
                 onClick={() => {
-                  onEditAndContinue(pendingEditContent);
+                  onEditAndContinue(pendingEditContent, pendingEditContext);
                   setShowConfirmDialog(false);
                   setIsInlineEditing(false);
                 }}

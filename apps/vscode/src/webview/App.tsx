@@ -709,7 +709,7 @@ export default function App() {
   }, []);
 
   // Edit message and continue — restores checkpoint, truncates messages, then resends
-  const handleEditMessageAndContinue = useCallback(async (messageId: string, newContent: string) => {
+  const handleEditMessageAndContinue = useCallback(async (messageId: string, newContent: string, context?: ContextItem[]) => {
     const currentMessages = useAgentStore.getState().messages;
     const messageIndex = currentMessages.findIndex((m) => m.id === messageId);
     if (messageIndex === -1) return;
@@ -733,7 +733,7 @@ export default function App() {
     }
 
     setRestoredAtMessageId(null);
-    await handleSendMessage(newContent);
+    await handleSendMessage(newContent, context);
   }, [handleSendMessage, bridge]);
 
   // New chat on current branch — does NOT interrupt running sessions
