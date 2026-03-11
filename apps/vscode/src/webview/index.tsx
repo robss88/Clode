@@ -1,3 +1,5 @@
+// TODO: Temporary comment for testing
+// Main entry point for the VSCode webview application
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';

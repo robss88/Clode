@@ -14,13 +14,16 @@ import {
   Upload,
   ChevronRight,
   Wrench,
+  Play,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
+import remarkGfm from 'remark-gfm';
 import clsx from 'clsx';
 import type { Message, ToolCall, FileNode, ContextItem } from '@claude-agent/core';
 import { useUIStore, useAgentStore } from '../../stores';
 import { ChatInput } from './ChatInput';
+import { MermaidBlock } from './MermaidBlock';
 
 interface ChatInterfaceProps {
   messages: Message[];
@@ -211,6 +214,7 @@ export function ChatInterface({
                         hasCheckpoint={hasCheckpoint}
                         onRestore={onRestoreToMessage ? () => onRestoreToMessage(message.id) : undefined}
                         onEditAndContinue={!isFadedOut && message.role === 'user' && onEditMessageAndContinue ? (newContent: string, context?: ContextItem[]) => onEditMessageAndContinue(message.id, newContent, context) : undefined}
+                        onImplementPlan={!isFadedOut && !isStreaming ? onSendMessage : undefined}
                         onModelChange={onModelChange}
                         fileTree={fileTree}
                         onReadFile={onReadFile}
@@ -236,7 +240,7 @@ export function ChatInterface({
                 streamingBlocks.map((block) => {
                   if (block.type === 'text') {
                     return <MarkdownContent key={block.id} content={block.content} />;
-                  } else if (block.type === 'tool') {
+                  } else if (block.type === 'tool' && !isHiddenToolCall(block.toolCall)) {
                     return (
                       <div key={block.id} className="my-1">
                         <ToolCallIndicator
@@ -253,8 +257,8 @@ export function ChatInterface({
                 <>
                   {streamingContent && <MarkdownContent content={streamingContent} />}
                   {(() => {
-                    const allTools = [...streamingToolCalls];
-                    if (currentToolCall && !allTools.some((t) => t.id === currentToolCall.id)) {
+                    const allTools = [...streamingToolCalls].filter((t) => !isHiddenToolCall(t));
+                    if (currentToolCall && !isHiddenToolCall(currentToolCall) && !allTools.some((t) => t.id === currentToolCall.id)) {
                       allTools.push({ ...currentToolCall, status: 'running' as const });
                     }
                     return allTools.length > 0 ? (
@@ -322,6 +326,7 @@ function MessageBubble({
   hasCheckpoint,
   onRestore,
   onEditAndContinue,
+  onImplementPlan,
   onModelChange,
   fileTree,
   onReadFile,
@@ -332,6 +337,7 @@ function MessageBubble({
   hasCheckpoint?: boolean;
   onRestore?: () => void;
   onEditAndContinue?: (newContent: string, context?: ContextItem[]) => void;
+  onImplementPlan?: (content: string) => void;
   onModelChange?: (model: string) => void;
   fileTree?: FileNode | null;
   onReadFile?: (path: string) => Promise<string | null>;
@@ -445,14 +451,42 @@ function MessageBubble({
           </div>
         )}
 
-        {/* Tool calls (grouped) */}
-        {message.toolCalls && message.toolCalls.length > 0 && (
-          <ToolCallGroup toolCalls={message.toolCalls} />
+        {/* Tool calls (grouped, hiding internal CLI tools) */}
+        {(() => {
+          const visibleToolCalls = message.toolCalls?.filter((t) => !isHiddenToolCall(t));
+          return visibleToolCalls && visibleToolCalls.length > 0 ? (
+            <ToolCallGroup toolCalls={visibleToolCalls} />
+          ) : null;
+        })()}
+
+        {/* Implement Plan button — shows when plan mode produced a plan (ExitPlanMode detected) */}
+        {isAssistant && isLastMessage && !isFadedOut && onImplementPlan &&
+          message.toolCalls?.some((t) => t.name.toLowerCase() === 'exitplanmode') && (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => {
+                useUIStore.getState().setMode('agent');
+                onImplementPlan('Implement the plan above.');
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md bg-accent/15 text-accent hover:bg-accent/25 transition-colors"
+            >
+              <Play className="w-3.5 h-3.5" />
+              Implement Plan
+            </button>
+          </div>
         )}
       </motion.div>
 
     </>
   );
+}
+
+// Internal CLI tool calls that should be hidden from the UI
+const HIDDEN_TOOL_CALLS = new Set(['exitplanmode', 'enterplanmode']);
+
+function isHiddenToolCall(toolCall: ToolCall): boolean {
+  return HIDDEN_TOOL_CALLS.has(toolCall.name.toLowerCase());
 }
 
 // Get a human-readable summary of what a tool call is doing
@@ -844,15 +878,22 @@ function MarkdownContent({ content }: { content: string }) {
 
   return (
     <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeHighlight]}
       components={{
         code({ node, className, children, ...props }) {
           const match = /language-(\w+)/.exec(className || '');
-          const isInline = !match;
+          const lang = match?.[1];
           const codeString = String(children).replace(/\n$/, '');
           const currentIndex = codeBlockIndex++;
 
-          if (isInline) {
+          // Mermaid diagrams — render as SVG
+          if (lang === 'mermaid') {
+            return <MermaidBlock code={codeString} />;
+          }
+
+          // Inline code
+          if (!match) {
             return (
               <code className="px-1.5 py-0.5 bg-background rounded text-sm font-mono" {...props}>
                 {children}
@@ -864,7 +905,7 @@ function MarkdownContent({ content }: { content: string }) {
             <div className="code-block my-3">
               <div className="code-block-header">
                 <span className="text-xs text-foreground-muted font-mono">
-                  {match?.[1] || 'code'}
+                  {lang || 'code'}
                 </span>
                 <button
                   onClick={() => handleCopy(codeString, currentIndex)}
@@ -885,6 +926,46 @@ function MarkdownContent({ content }: { content: string }) {
               </pre>
             </div>
           );
+        },
+        // GFM tables
+        table({ children }) {
+          return (
+            <div className="my-3 overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-sm">{children}</table>
+            </div>
+          );
+        },
+        thead({ children }) {
+          return <thead className="bg-background-tertiary border-b border-border">{children}</thead>;
+        },
+        th({ children }) {
+          return <th className="px-3 py-1.5 text-left text-xs font-semibold text-foreground-secondary">{children}</th>;
+        },
+        td({ children }) {
+          return <td className="px-3 py-1.5 border-t border-border text-foreground-muted">{children}</td>;
+        },
+        // Task lists
+        li({ children, ...props }) {
+          const node = (props as any).node;
+          const isTask = node?.properties?.className?.includes('task-list-item');
+          if (isTask) {
+            return <li className="list-none flex items-start gap-2">{children}</li>;
+          }
+          return <li>{children}</li>;
+        },
+        input({ type, checked, ...props }) {
+          if (type === 'checkbox') {
+            return (
+              <input
+                type="checkbox"
+                checked={checked}
+                readOnly
+                className="mt-1 accent-accent"
+                {...props}
+              />
+            );
+          }
+          return <input type={type} {...props} />;
         },
         p({ children }) {
           return <p className="mb-3 last:mb-0">{children}</p>;
