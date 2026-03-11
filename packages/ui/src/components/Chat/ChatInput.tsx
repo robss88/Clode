@@ -315,26 +315,64 @@ export function ChatInput({
   }, [slashQuery]);
 
   // Initialize mention chips from context (e.g. when editing a message with @mentions)
+  // Replaces @filename tokens inline to preserve their original position in the text
   useEffect(() => {
     if (!initialContext || initialContext.length === 0 || !editorRef.current) return;
 
     const el = editorRef.current;
     const text = el.textContent || '';
 
-    // Rebuild contentEditable with chips followed by text
-    el.innerHTML = '';
+    // Build a map of mention names to their context items
+    const mentionItems = initialContext.filter(
+      (item) => item.type === 'file' && 'path' in item && item.path
+    );
 
-    for (const item of initialContext) {
-      if (item.type === 'file' && 'path' in item && item.path) {
-        const chip = createMentionChip(item.name, item.path, onReadFile);
-        el.appendChild(chip);
-        el.appendChild(document.createTextNode('\u00A0'));
+    if (mentionItems.length === 0) return;
+
+    // Walk through the text and replace @mentions inline with chips
+    const fragment = document.createDocumentFragment();
+    let remaining = text;
+
+    while (remaining.length > 0) {
+      // Find the earliest @mention in the remaining text
+      let earliestIndex = -1;
+      let earliestItem: ContextItem | null = null;
+      let matchLength = 0;
+
+      for (const item of mentionItems) {
+        const token = `@${item.name}`;
+        const idx = remaining.indexOf(token);
+        if (idx !== -1 && (earliestIndex === -1 || idx < earliestIndex)) {
+          earliestIndex = idx;
+          earliestItem = item;
+          matchLength = token.length;
+        }
       }
+
+      if (earliestIndex === -1 || !earliestItem) {
+        // No more mentions — append the rest as text
+        fragment.appendChild(document.createTextNode(remaining));
+        break;
+      }
+
+      // Add text before the mention
+      if (earliestIndex > 0) {
+        fragment.appendChild(document.createTextNode(remaining.slice(0, earliestIndex)));
+      }
+
+      // Add the chip
+      const chip = createMentionChip(earliestItem.name, earliestItem.path!, onReadFile);
+      fragment.appendChild(chip);
+      fragment.appendChild(document.createTextNode('\u00A0'));
+
+      // Skip past the @mention token (and any trailing space)
+      let skipTo = earliestIndex + matchLength;
+      if (remaining[skipTo] === ' ' || remaining[skipTo] === '\u00A0') skipTo++;
+      remaining = remaining.slice(skipTo);
     }
 
-    if (text) {
-      el.appendChild(document.createTextNode(text));
-    }
+    el.innerHTML = '';
+    el.appendChild(fragment);
 
     setHasContent(true);
     updateHeight();

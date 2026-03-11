@@ -430,7 +430,7 @@ function MessageBubble({
             ) : (
               <ChatInput
                 readOnly
-                initialValue={cleanEditText}
+                initialValue={editInitialValue}
                 initialContext={editMentions}
                 onClick={!isFadedOut && canEdit ? startEditing : undefined}
                 onReadFile={onReadFile}
