@@ -1,5 +1,6 @@
 // Components
 export { ChatInterface } from './components/Chat';
+export { ChronologicalChat } from './components/Chat/ChronologicalChat';
 export { CommandPalette } from './components/CommandPalette';
 export { Settings } from './components/Settings';
 

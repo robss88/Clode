@@ -1,6 +1,5 @@
 import type { ContextItem, FileNode, Message } from '@claude-agent/core';
 import {
-  ChatInterface,
   configureStorage,
   executeCommand,
   getModeFlags,
@@ -12,9 +11,15 @@ import { useCallback, useEffect, useState, useRef } from 'react';
 import { useBridge } from './bridge/context';
 import { vscodeStorage } from './bridge/vscode-bridge';
 import { ChatTabs } from './ChatTabs';
-import { CommandPalette, CommandItem } from '@claude-agent/ui';
+import { CommandPalette } from '@claude-agent/ui';
 import { Settings } from '@claude-agent/ui';
-import { Bot, Map, MessageCircle, Zap, Cpu, FileText, Brain } from 'lucide-react';
+
+// Component imports
+import { InitializationManager } from './components/InitializationManager';
+import { EventHandlers } from './components/EventHandlers';
+import { ChatPanel } from './components/ChatPanel';
+import { DebugPanel } from './components/DebugPanel';
+import { createCommands } from './components/CommandPaletteConfig';
 
 // Configure Zustand persistence to use VS Code webview state (survives reloads)
 configureStorage(vscodeStorage);
@@ -45,280 +50,22 @@ export default function App() {
     setCurrentToolCall,
   } = useAgentStore();
 
-  // Initialize: request init state from extension host (handles race condition)
-  useEffect(() => {
-    let didInit = false;
-
-    async function handleInitState(state: any) {
-      if (didInit) return;
-      didInit = true;
-      try {
-        const branchName = state.branch || 'main';
-        setCurrentBranch(branchName);
-
-        // Restore last active chat, or pick first for branch, or create new
-        const store = useChatSessionStore.getState();
-        const persistedId = store.activeChatId;
-        const branchChats = store.getChatsForBranch(branchName);
-        let chat;
-        if (persistedId && store.sessions[persistedId]) {
-          chat = store.sessions[persistedId];
-        } else if (branchChats.length > 0) {
-          chat = branchChats[0];
-        } else {
-          chat = store.createChat(branchName, 'Chat 1');
-        }
-
-        // Fire-and-forget — don't block init on Claude process startup
-        bridge.startClaude(chat.id, chat.claudeSessionId);
-
-        // Restore messages from the active chat
-        if (chat.messages.length > 0) {
-          useAgentStore.getState().setMessages(chat.messages);
-        }
-        useAgentStore.getState().setActiveChatId(chat.id);
-        useChatSessionStore.getState().setActiveChatId(chat.id);
-
-        // Load file tree for @ mentions
-        const tree = await bridge.getFileTree();
-        setFileTree(tree);
-
-        setIsReady(true);
-      } catch (err) {
-        console.error('[Webview] Init failed:', err);
-        setIsReady(true);
-      }
-    }
-
-    // Listen for broadcast (fast path)
-    const cleanup = bridge.onInitState(handleInitState);
-
-    // Request init state (handles race condition where broadcast was missed)
-    bridge.requestInitState().then(handleInitState).catch(() => {});
-
-    return cleanup;
-  }, [bridge]);
-
-  // Log mode/model changes to debug panel
-  useEffect(() => {
-    let prevMode = useUIStore.getState().mode;
-    let prevModel = useUIStore.getState().model;
-    return useUIStore.subscribe((state) => {
-      if (state.mode !== prevMode) {
-        prevMode = state.mode;
-        useAgentStore.getState().pushDebugRawLine({ _event: 'ui:mode-change', mode: state.mode });
-      }
-      if (state.model !== prevModel) {
-        prevModel = state.model;
-        useAgentStore.getState().pushDebugRawLine({ _event: 'ui:model-change', model: state.model });
-      }
-    });
+  // Handle initialization completion
+  const handleInitComplete = useCallback((state: {
+    fileTree: any;
+    currentBranch: string;
+    isReady: boolean;
+  }) => {
+    setFileTree(state.fileTree);
+    setCurrentBranch(state.currentBranch);
+    setIsReady(state.isReady);
   }, []);
 
-  // Set up event listeners — events are now tagged with chatId from ClaudeService
-  useEffect(() => {
-    const cleanupChunk = bridge.onClaudeChunk((data: any) => {
-      // Capture raw chunk for debug panel
-      useAgentStore.getState().pushDebugRawLine(data);
+  // Handle checkpoint creation
+  const handleCheckpointCreated = useCallback((messageId: string) => {
+    setCheckpointMessageIds((prev) => new Set([...prev, messageId]));
+  }, []);
 
-      const chatId = data.chatId as string | undefined;
-      const store = useAgentStore.getState();
-
-      if (data.type === 'init') {
-        if (data.sessionId) {
-          const targetChatId = chatId || useChatSessionStore.getState().activeChatId;
-          if (targetChatId) {
-            useChatSessionStore.getState().updateChat(targetChatId, { claudeSessionId: data.sessionId });
-          }
-        }
-        // Sync UI state from CLI init event — CLI is the source of truth
-        if (data.model) {
-          console.log('[Webview] CLI model:', data.model);
-        }
-        if (data.permissionMode) {
-          console.log('[Webview] CLI permission mode:', data.permissionMode);
-        }
-      } else if (data.type === 'text') {
-        store.handleTextChunk(chatId, data.content);
-      } else if (data.type === 'tool_call' && data.toolCall) {
-        if (chatId) {
-          const stream = store.getChatStream(chatId);
-          const existingBlock = stream.streamingBlocks.find(
-            (b: any) => b.type === 'tool' && b.toolCall.id === data.toolCall.id
-          );
-          if (existingBlock) {
-            store.updateChatStreamToolBlock(chatId, data.toolCall.id, { input: data.toolCall.input });
-          } else {
-            store.appendChatStreamBlock(chatId, 'tool', data.toolCall);
-          }
-          store.setChatToolCall(chatId, data.toolCall);
-        } else {
-          const existingBlock = store.streamingBlocks.find(
-            (b) => b.type === 'tool' && b.toolCall.id === data.toolCall.id
-          );
-          if (existingBlock) {
-            store.updateStreamingToolBlock(data.toolCall.id, { input: data.toolCall.input });
-          } else {
-            store.appendStreamingBlock('tool', data.toolCall);
-          }
-          store.setCurrentToolCall(data.toolCall);
-        }
-      } else if (data.type === 'tool_result' && data.toolResult) {
-        const resultUpdates = {
-          status: (data.toolResult.isError ? 'error' : 'completed') as 'error' | 'completed',
-          output: data.toolResult.output,
-        };
-        if (chatId) {
-          store.updateChatStreamToolBlock(chatId, data.toolResult.toolCallId, resultUpdates);
-          store.setChatToolCall(chatId, null);
-        } else {
-          store.updateStreamingToolBlock(data.toolResult.toolCallId, resultUpdates);
-          store.setCurrentToolCall(null);
-        }
-      } else if (data.type === 'complete') {
-        if (chatId) {
-          store.setChatToolCall(chatId, null);
-        } else {
-          store.setCurrentToolCall(null);
-        }
-      }
-    });
-
-    const cleanupMessage = bridge.onClaudeMessage(async (data: any) => {
-      useAgentStore.getState().pushDebugRawLine({ _event: 'claude:message', ...data });
-      const chatId = data.chatId as string | undefined;
-      const message = data.message || data; // Handle both tagged and untagged formats
-      const store = useAgentStore.getState();
-      const activeChatId = useChatSessionStore.getState().activeChatId;
-
-      if (chatId) {
-        // Fill in content from streaming if empty
-        const stream = store.getChatStream(chatId);
-        if (!message.content && stream.streamingContent) {
-          message.content = stream.streamingContent;
-        }
-
-        // Clear this chat's streaming state
-        store.clearChatStream(chatId);
-        store.setChatStreaming(chatId, false);
-
-        // Only add to displayed messages if this is the active chat
-        if (chatId === activeChatId) {
-          store.addMessage(message);
-        }
-
-        // Always save to persistent session store
-        const chatStore = useChatSessionStore.getState();
-        const session = chatStore.sessions[chatId];
-        if (session) {
-          const msgs = chatId === activeChatId
-            ? useAgentStore.getState().messages
-            : [...session.messages, message];
-          chatStore.saveMessages(chatId, msgs);
-        }
-      } else {
-        // Legacy untagged format
-        if (!message.content && store.streamingContent) {
-          message.content = store.streamingContent;
-        }
-        store.clearStreamingContent();
-        store.clearStreamingToolCalls();
-        store.setCurrentToolCall(null);
-        store.addMessage(message);
-        store.setStreaming(false);
-
-        if (activeChatId) {
-          useChatSessionStore.getState().saveMessages(activeChatId, useAgentStore.getState().messages);
-        }
-      }
-
-      // Create file checkpoint after each assistant response
-      bridge.createFileCheckpoint(message.id).then((created) => {
-        if (created) {
-          setCheckpointMessageIds((prev) => new Set([...prev, message.id]));
-        }
-      }).catch((err) => {
-        console.error('[Webview] File checkpoint failed:', err);
-      });
-
-      // Auto-name the chat session
-      const targetChatId = chatId || activeChatId;
-      if (targetChatId) {
-        const chat = useChatSessionStore.getState().sessions[targetChatId];
-        const allMessages = targetChatId === activeChatId
-          ? useAgentStore.getState().messages
-          : chat?.messages || [];
-
-        if (chat && (chat.name === 'New Chat' || chat.messages.length === 0)) {
-          const userMessages = allMessages.filter((m: Message) => m.role === 'user');
-
-          if (userMessages.length > 0) {
-            let titleContent = '';
-            const firstUser = userMessages[0];
-            titleContent = firstUser.content
-              .replace(/<file\s+path="[^"]*">\n?[\s\S]*?\n?<\/file>/g, '')
-              .replace(/^\n+/, '')
-              .trim();
-
-            if (titleContent.length < 20 && userMessages.length > 1) {
-              const secondUser = userMessages[1];
-              const secondContent = secondUser.content
-                .replace(/<file\s+path="[^"]*">\n?[\s\S]*?\n?<\/file>/g, '')
-                .replace(/^\n+/, '')
-                .trim();
-              if (secondContent.length > titleContent.length) {
-                titleContent = secondContent;
-              }
-            }
-
-            const firstLine = titleContent.split(/[\n.!?]/)[0]?.trim() || titleContent;
-            let name = firstLine.slice(0, 50).trim();
-            name = name.replace(/^(please |can you |help me |i need |i want )/i, '');
-            name = name.replace(/['"]/g, '');
-            if (name.length > 0) {
-              name = name.charAt(0).toUpperCase() + name.slice(1);
-            }
-            name = name || 'Chat Session';
-            useChatSessionStore.getState().updateChat(targetChatId, { name });
-          }
-        }
-      }
-    });
-
-    const cleanupError = bridge.onClaudeError((data: any) => {
-      useAgentStore.getState().pushDebugRawLine({ _event: 'claude:error', ...data });
-      const chatId = data.chatId as string | undefined;
-      const error = data.error || data; // Handle both tagged and untagged
-
-      if (typeof error === 'string' && error.startsWith('[Debug]')) return;
-
-      const store = useAgentStore.getState();
-      if (chatId) {
-        store.setChatStreaming(chatId, false);
-        store.clearChatStream(chatId);
-      } else {
-        store.setStreaming(false);
-      }
-
-      // Show error to user as system message (only for active chat)
-      const activeChatId = useChatSessionStore.getState().activeChatId;
-      if (!chatId || chatId === activeChatId) {
-        const errorMsg: Message = {
-          id: `err-${Date.now()}`,
-          role: 'system',
-          content: `Error: ${typeof error === 'string' ? error : error?.message || String(error)}`,
-          timestamp: Date.now(),
-        };
-        store.addMessage(errorMsg);
-      }
-    });
-
-    return () => {
-      cleanupChunk();
-      cleanupMessage();
-      cleanupError();
-    };
-  }, [bridge]);
 
   // Auto-save messages to active chat session
   useEffect(() => {
@@ -339,106 +86,8 @@ export default function App() {
     addMessage(msg);
   }, [addMessage]);
 
-  // Command Palette commands
-  const commands: CommandItem[] = [
-    // Mode commands
-    {
-      id: 'mode-ask',
-      label: 'Ask Mode',
-      description: 'Conversation only, no file changes',
-      icon: <MessageCircle className="w-4 h-4" />,
-      keywords: ['mode', 'chat', 'talk'],
-      category: 'mode',
-      action: () => useUIStore.getState().setMode('ask'),
-    },
-    {
-      id: 'mode-plan',
-      label: 'Plan Mode',
-      description: 'Explore code and create implementation plans',
-      icon: <Map className="w-4 h-4" />,
-      keywords: ['mode', 'plan', 'design'],
-      category: 'mode',
-      action: () => useUIStore.getState().setMode('plan'),
-    },
-    {
-      id: 'mode-agent',
-      label: 'Agent Mode',
-      description: 'Full autonomous agent with all tools',
-      icon: <Bot className="w-4 h-4" />,
-      keywords: ['mode', 'agent', 'auto'],
-      category: 'mode',
-      action: () => useUIStore.getState().setMode('agent'),
-    },
-    {
-      id: 'mode-yolo',
-      label: 'YOLO Mode',
-      description: 'Full autonomy, no guardrails',
-      icon: <Zap className="w-4 h-4" />,
-      keywords: ['mode', 'yolo', 'fast'],
-      category: 'mode',
-      action: () => useUIStore.getState().setMode('yolo'),
-    },
-    // Model commands
-    {
-      id: 'model-sonnet',
-      label: 'Sonnet',
-      description: 'Switch to Claude Sonnet (fast & capable)',
-      icon: <Cpu className="w-4 h-4" />,
-      keywords: ['model', 'sonnet'],
-      category: 'model',
-      action: () => bridge.setModel('sonnet'),
-    },
-    {
-      id: 'model-opus',
-      label: 'Opus',
-      description: 'Switch to Claude Opus (most powerful)',
-      icon: <Cpu className="w-4 h-4" />,
-      keywords: ['model', 'opus'],
-      category: 'model',
-      action: () => bridge.setModel('opus'),
-    },
-    {
-      id: 'model-haiku',
-      label: 'Haiku',
-      description: 'Switch to Claude Haiku (fastest & cheapest)',
-      icon: <Cpu className="w-4 h-4" />,
-      keywords: ['model', 'haiku'],
-      category: 'model',
-      action: () => bridge.setModel('haiku'),
-    },
-    // Action commands
-    {
-      id: 'clear-chat',
-      label: 'Clear Conversation',
-      description: 'Clear all messages in current chat',
-      icon: <FileText className="w-4 h-4" />,
-      keywords: ['clear', 'reset', 'delete'],
-      category: 'action',
-      action: () => useAgentStore.getState().clearMessages(),
-    },
-    {
-      id: 'toggle-thinking',
-      label: 'Toggle Extended Thinking',
-      description: 'Enable/disable extended reasoning mode',
-      icon: <Brain className="w-4 h-4" />,
-      keywords: ['thinking', 'reasoning', 'extended'],
-      category: 'action',
-      action: () => {
-        const current = useUIStore.getState().extendedThinking;
-        useUIStore.getState().setExtendedThinking(!current);
-      },
-    },
-    // Settings
-    {
-      id: 'open-settings',
-      label: 'Settings',
-      description: 'Open settings panel',
-      icon: <FileText className="w-4 h-4" />,
-      keywords: ['settings', 'config', 'preferences'],
-      category: 'settings',
-      action: () => useUIStore.getState().toggleSettings(),
-    },
-  ];
+  // Get command palette commands
+  const commands = createCommands(bridge);
 
   // Keyboard shortcut for command palette
   useEffect(() => {
@@ -848,6 +497,12 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
+      {/* Initialize app state */}
+      <InitializationManager onInitComplete={handleInitComplete} />
+
+      {/* Set up event handlers */}
+      <EventHandlers onCheckpointCreated={handleCheckpointCreated} />
+
       <ChatTabs
         currentBranch={currentBranch}
         onSwitchChat={handleSwitchChat}
@@ -856,24 +511,20 @@ export default function App() {
         onReopenChat={handleReopenChat}
         onPermanentlyDeleteChat={handlePermanentlyDeleteChat}
       />
+
       <div className="flex-1 overflow-hidden">
-        <ChatInterface
+        <ChatPanel
           messages={messages}
           isStreaming={isStreaming}
           streamingContent={streamingContent}
           currentToolCall={currentToolCall}
           fileTree={fileTree}
           checkpointMessageIds={checkpointMessageIds}
+          restoredAtMessageId={restoredAtMessageId}
           onSendMessage={handleSendMessage}
           onInterrupt={handleInterrupt}
           onRestoreToMessage={handleRestoreToMessage}
           onEditMessageAndContinue={handleEditMessageAndContinue}
-          restoredAtMessageId={restoredAtMessageId}
-          onReadFile={(path) => bridge.readFile(path)}
-          onModelChange={(model) => {
-            useUIStore.getState().setModel(model);
-            bridge.setModel(model);
-          }}
         />
       </div>
 
@@ -890,71 +541,8 @@ export default function App() {
         onClose={toggleSettings}
       />
 
-      {/* Debug Raw Output Panel */}
-      <DebugRawPanel />
+      {/* Debug Panel */}
+      <DebugPanel />
     </div>
-  );
-}
-
-function DebugRawPanel() {
-  const { showDebugPanel, toggleDebugPanel } = useUIStore();
-  const debugRawLines = useAgentStore((s) => s.debugRawLines);
-  const clearDebugRawLines = useAgentStore((s) => s.clearDebugRawLines);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (showDebugPanel && panelRef.current) {
-      panelRef.current.scrollTop = panelRef.current.scrollHeight;
-    }
-  }, [debugRawLines, showDebugPanel]);
-
-  return (
-    <>
-      {/* Toggle button — fixed bottom-right */}
-      <button
-        type="button"
-        onClick={toggleDebugPanel}
-        className="fixed bottom-2 right-2 z-50 w-7 h-7 flex items-center justify-center rounded bg-background-tertiary border border-border text-foreground-muted hover:text-foreground text-[10px] font-mono transition-colors"
-        title="Toggle raw CLI output"
-      >
-        {showDebugPanel ? '×' : '{}'}
-      </button>
-
-      {/* Panel */}
-      {showDebugPanel && (
-        <div className="fixed inset-x-0 bottom-0 z-40 h-[40vh] flex flex-col bg-[#0d0d0d] border-t border-border">
-          <div className="flex items-center justify-between px-3 py-1.5 border-b border-border text-[11px]">
-            <span className="text-foreground-muted font-mono">Raw CLI Output ({debugRawLines.length} chunks)</span>
-            <button
-              type="button"
-              onClick={clearDebugRawLines}
-              className="text-foreground-muted hover:text-foreground transition-colors"
-            >
-              Clear
-            </button>
-          </div>
-          <div ref={panelRef} className="flex-1 overflow-y-auto font-mono text-[11px] p-2 space-y-px">
-            {debugRawLines.length === 0 ? (
-              <div className="text-foreground-muted/50 text-center py-4">No output yet. Send a message to see raw CLI chunks.</div>
-            ) : (
-              debugRawLines.map((line, i) => {
-                const ts = new Date(line.timestamp).toISOString().slice(11, 23);
-                const type = line.data?.type || '?';
-                return (
-                  <div key={i} className="flex gap-2 hover:bg-white/5 px-1 rounded">
-                    <span className="text-foreground-muted/40 flex-shrink-0 select-none">{ts}</span>
-                    <span className="text-accent flex-shrink-0">{type}</span>
-                    <span className="text-foreground-muted whitespace-pre-wrap break-all">
-                      {JSON.stringify(line.data, null, 0).slice(0, 500)}
-                    </span>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-    </>
   );
 }

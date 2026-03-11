@@ -61,3 +61,6 @@ export interface InitState {
   activeChatSessionId: string | null;
   isStreaming: boolean;
 }
+
+// Alias for compatibility
+export type Bridge = PlatformBridge;
